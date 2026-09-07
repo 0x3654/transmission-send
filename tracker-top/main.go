@@ -181,7 +181,7 @@ func getTop(src, cat string, pages int) (Payload, bool, error) {
 	}
 
 	if src == "both" || src == "rut" {
-		rutItems, err := rutorTop()
+		rutItems, err := rutorTop(cat)
 		if err != nil {
 			log.Printf("rutor: %v", err)
 			errs = append(errs, err)

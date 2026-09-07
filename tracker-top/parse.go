@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
 )
@@ -50,7 +51,10 @@ func fetch(url string) (string, error) {
 		return "", err
 	}
 
-	// NNMClub отдаёт cp1251, RUTOR — utf-8; декодер молчит на utf-8 входе
+	// NNMClub отдаёт cp1251, RUTOR — utf-8: валидный utf-8 не трогаем
+	if utf8.Valid(raw) {
+		return string(raw), nil
+	}
 	decoded, err := charmap.Windows1251.NewDecoder().Bytes(raw)
 	if err != nil {
 		decoded = raw
@@ -271,7 +275,31 @@ func atoiDefault(s string) int {
 
 // ---------- RUTOR
 
-func rutorTop() ([]Item, error) {
+// видео-категории RUTOR: 1 зарубежные фильмы, 5 наши, 12 научно-популярные,
+// 4 зарубежные сериалы, 16 наши, 7 мультипликация, 10 аниме
+var rutorVideoCats = []int{1, 5, 12, 4, 16, 7, 10}
+
+func rutorTop(cat string) ([]Item, error) {
+	// топы по разделам: browse с сортировкой «по раздающим» (order=2)
+	if cat == "video" {
+		var items []Item
+		var firstErr error
+		for _, c := range rutorVideoCats {
+			body, err := fetch(fmt.Sprintf("%s/browse/0/%d/0/0/2/", rutorBase, c))
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			items = append(items, parseRutor(body)...)
+		}
+		if len(items) == 0 && firstErr != nil {
+			return nil, firstErr
+		}
+		return items, nil
+	}
+
 	body, err := fetch(rutorBase + "/top/")
 	if err != nil {
 		return nil, err
