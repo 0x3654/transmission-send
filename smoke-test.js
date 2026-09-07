@@ -7,6 +7,8 @@ const source = fs.readFileSync(__dirname + '/transmission-send.js', 'utf8')
 
 // --- стабы
 const calls = { noty: [], copied: null, anchorClicked: 0, toggled: null, location: null }
+const sharedPlugins = [{ url: 'https://0x3654.github.io/transmission-send/transmission-send.js' }]
+let saved = false
 const listeners = {}
 
 const sandbox = {
@@ -25,8 +27,8 @@ sandbox.appready = true
 sandbox.Lampa = {
     Lang: { add(){}, translate: (k) => k },
     Plugins: {
-        get(){ return [{ url: 'https://0x3654.github.io/transmission-send/transmission-send.js' }] },
-        save(){}
+        get(){ return sharedPlugins },
+        save(){ saved = true }
     },
     Noty: { show(text, params){ calls.noty.push({ text, params }) } },
     Listener: { follow(type, fn){ (listeners[type] = listeners[type] || []).push(fn) } },
@@ -40,8 +42,9 @@ vm.runInContext(source, sandbox)
 
 // --- 0. самоименовывание: честное описание без обещаний про скачивание
 {
-    const rec = sandbox.Lampa.Plugins.get()[0]
+    const rec = sharedPlugins[0]
     assert.strictEqual(rec.name, 'Transmission Send')
+    assert.ok(saved, 'Plugins.save вызван')
     assert.ok(!/скачиван|Transmission через меню/i.test(rec.descr), 'описание без «отправки в Transmission»')
 }
 console.log('✓ подпись плагина: имя + честное описание')
