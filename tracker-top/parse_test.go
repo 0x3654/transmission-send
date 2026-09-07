@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+var _ = camRe
+
 func fixture(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile("tests/" + name)
@@ -174,4 +176,49 @@ func TestDedupeFilms(t *testing.T) {
 	check(t, "представитель — лучшая раздача", holop != nil && holop.Quality == "2160", holop.Quality)
 	check(t, "размер лучшей раздачи", holop != nil && holop.Size == 30<<30, holop.Size)
 	check(t, "дубляж не потерян", holop != nil && holop.Dub)
+}
+
+func TestCamAndJunk(t *testing.T) {
+	camCases := map[string]bool{
+		"Фильм (2026) TS":                   true,
+		"Фильм (2026) CAMRip":               true,
+		"Фильм (2026) TeleSync":             true,
+		"Фильм (2026) WEB-DL 1080p":         false,
+		"Фильм (2026) WEBRip [H.264/1080p]": false,
+		"Фильм (2026) BDRip":                false,
+	}
+	for title, want := range camCases {
+		check(t, "cam "+title, camRe.MatchString(title) == want, camRe.MatchString(title))
+	}
+
+	items := []Item{
+		{Ru: "A", Year: 2026, Cam: true, Seeders: 500},
+		{Ru: "A", Year: 2026, Seeders: 10, Quality: "1080"},
+		{Ru: "B", Year: 2026, TsSound: true, Seeders: 900}, // только звук с TS
+		{Ru: "C", Year: 2026, Seeders: 100},
+	}
+	out := filterJunk(items)
+	// A осталась (есть нормальная раздача), B исчезла целиком, C на месте
+	check(t, "junk: A осталась", len(out) == 2 && (out[0].Ru == "A" || out[1].Ru == "A") &&
+		(out[0].Ru == "C" || out[1].Ru == "C"), len(out))
+
+	// представитель у A — не камрип, несмотря на 500 сидов кам-раздачи
+	for _, it := range out {
+		if it.Ru == "A" {
+			check(t, "junk: представитель не камрип", !it.Cam)
+			check(t, "junk: сиды камрип-раздачи не считаются", it.Seeders == 10, it.Seeders)
+		}
+	}
+}
+
+func TestSortItems(t *testing.T) {
+	items := []Item{
+		{Ru: "A", Seeders: 100, Completed: 5},
+		{Ru: "B", Seeders: 50, Completed: 900},
+		{Ru: "C", Seeders: 70, Completed: 100},
+	}
+	sortItems(items, "seeds")
+	check(t, "по сидам", items[0].Ru == "A" && items[1].Ru == "C" && items[2].Ru == "B")
+	sortItems(items, "top")
+	check(t, "по завершённости", items[0].Ru == "B" && items[1].Ru == "C" && items[2].Ru == "A")
 }

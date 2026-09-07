@@ -1,6 +1,6 @@
 // tracker-top — топ раздач трекеров (NNMClub, RUTOR) → JSON для плагина Lampa «Топ трекеров».
 //
-// GET /top?src=both|nnm|rut&cat=video|all&pages=1..3&minq=720|1080|2160&audio=all|dub|no_ts
+// GET /top?src=both|nnm|rut&cat=video|all&pages=1..3&sort=seeds|top&minq=720|1080|2160&audio=all|dub|no_ts&junk=0|1
 // GET /healthz
 //
 // Кэш в памяти TTL секунд (TTL, 600 по умолчанию). CORS: *. Зависимости: golang.org/x/text (cp1251).
@@ -51,6 +51,7 @@ type Item struct {
 	Quality   string `json:"quality"` // 2160 | 1080 | 720 | sd
 	Dub       bool   `json:"dub"`
 	TsSound   bool   `json:"ts_sound"`
+	Cam       bool   `json:"cam"` // камрип/телефильм-скринка
 	Voice     string `json:"voice,omitempty"`
 }
 
@@ -150,16 +151,43 @@ func dedupeFilms(items []Item) []Item {
 	return out
 }
 
-// betterRelease: выше качество, при равенстве — больше размер
+// betterRelease: не-камрип лучше камрипа, дальше выше качество, при равенстве — больше размер
 func betterRelease(a, b Item) bool {
+	if a.Cam != b.Cam {
+		return !a.Cam
+	}
 	if qualityRank(a.Quality) != qualityRank(b.Quality) {
 		return qualityRank(a.Quality) > qualityRank(b.Quality)
 	}
 	return a.Size > b.Size
 }
 
-func getTop(src, cat string, pages int) (Payload, bool, error) {
-	key := src + "|" + cat + "|" + strconv.Itoa(pages)
+// filterJunk вычищает камрипы и «звук с TS» ДО дедупа: фильм, у которого
+// нет ни одной нормальной раздачи, исчезает из топа целиком
+func filterJunk(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if it.Cam || it.TsSound {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// sortItems: seeds — кто раздаёт сейчас; top — завершённость за всё время
+func sortItems(items []Item, sortBy string) {
+	key := func(it Item) int {
+		if sortBy == "top" {
+			return it.Completed
+		}
+		return it.Seeders
+	}
+	sort.SliceStable(items, func(i, j int) bool { return key(items[i]) > key(items[j]) })
+}
+
+func getTop(src, cat string, pages int, junk bool, sort string) (Payload, bool, error) {
+	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) + "|" + sort
 
 	cacheMu.Lock()
 	if e, ok := cache[key]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
@@ -171,8 +199,15 @@ func getTop(src, cat string, pages int) (Payload, bool, error) {
 	var items []Item
 	var errs []error
 
+	// у NNM есть сортировки «за всё время» (o=6 завершённость); у RUTOR — только по раздающим
+	nnmOrder := 10
+	if sort == "top" {
+		nnmOrder = 6
+		src = "nnm"
+	}
+
 	if src == "both" || src == "nnm" {
-		nnmItems, err := nnmTop(cat, pages)
+		nnmItems, err := nnmTop(cat, pages, nnmOrder)
 		if err != nil {
 			log.Printf("nnm: %v", err)
 			errs = append(errs, err)
@@ -194,12 +229,15 @@ func getTop(src, cat string, pages int) (Payload, bool, error) {
 		return Payload{}, false, errs[0]
 	}
 
+	if junk {
+		items = filterJunk(items)
+	}
+
 	// мы показываем фильмы для поиска, а не ленту раздач: дубликаты раздач
 	// схлопываются в одну позицию, популярность суммируется
 	items = dedupeFilms(items)
 
-	// общий топ: по убыванию сидов
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Seeders > items[j].Seeders })
+	sortItems(items, sort)
 
 	p := Payload{Source: src, FetchedAt: time.Now().UTC().Format(time.RFC3339), Items: items}
 
@@ -258,8 +296,14 @@ func main() {
 		}
 		minq := param(q, "minq", "") // "" | 720 | 1080 | 2160
 		audio := param(q, "audio", "all")
+		junk := param(q, "junk", "1") != "0"
+		sortBy := param(q, "sort", "seeds")
+		if sortBy != "seeds" && sortBy != "top" {
+			writeJSON(w, 400, map[string]string{"error": "sort must be one of seeds|top"})
+			return
+		}
 
-		payload, cached, err := getTop(src, cat, pages)
+		payload, cached, err := getTop(src, cat, pages, junk, sortBy)
 		if err != nil {
 			writeJSON(w, 502, map[string]string{"error": err.Error()})
 			return

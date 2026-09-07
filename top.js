@@ -1,12 +1,16 @@
 /*
     Top — плагин Lampa (lampa.mx)
 
-    Два пункта в меню:
+    Три пункта в меню:
       • «Топ»           — популярное/лучшее по TMDB (тренды за день/неделю, топ по рейтингу,
-                          новинки); переключение варианта — кнопка вправо или через выбор
-      • «Топ трекеров»  — топ раздач NNMClub по сидам, обогащённый постерами TMDB.
-                          Данные от маленького сервера tracker-top (см. tracker-top/ в репо),
-                          адрес задаётся в настройках плагина.
+                          новинки); переключение варианта — кнопка вправо
+      • «Топ трекеров»  — топ раздач NNMClub/RUTOR по сидам или завершённости,
+                          обогащённый постерами TMDB; сервер tracker-top (tracker-top/ в репо)
+      • «Мой фильтр»    — последний применённый фильтр каталога (Lampa их не помнит —
+                          мы запоминаем на событии activity и открываем одним нажатием)
+
+    Настройки: Настройки → Топ — адрес сервера, «Топ» вместо главной, минимальное
+    качество, скрытие CAM/TS-раздач, только дубляж.
 
     Установка: Настройки → Расширения → «+» → URL этого файла.
 */
@@ -19,7 +23,7 @@
     if(window[FLAG]) return
     window[FLAG] = true
 
-    // сколько раздач обогащать запросами к TMDB (лимит на экран)
+    // сколько фильмов обогащать запросами к TMDB (лимит на экран)
     var MATCH_LIMIT = 60
 
     function init(){
@@ -42,7 +46,15 @@
             { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
 
+        function lastVariantIndex(){
+            var idx = parseInt(Lampa.Storage.get('top_last_variant', '0'), 10)
+
+            return VARIANTS[idx] ? idx : 0
+        }
+
         function pushVariant(v){
+            Lampa.Storage.set('top_last_variant', String(VARIANTS.indexOf(v)))
+
             Lampa.Activity.push({
                 url: '',
                 title: v.title,
@@ -105,6 +117,20 @@
             return url.replace(/\/+$/, '')
         }
 
+        // строка запроса из настроек плагина
+        function trackersQuery(sort){
+            var minqMap = { '720p+': '720', '1080p+': '1080', '2160p+': '2160' }
+            var minq    = minqMap[Lampa.Storage.field('top_min_quality')] || ''
+            var junk    = Lampa.Storage.field('top_no_cam') === false ? '0' : '1'
+            var audio   = Lampa.Storage.field('top_dub_only') === true ? 'dub' : 'all'
+
+            return '/top?cat=video&pages=2' +
+                '&sort=' + (sort || 'seeds') +
+                (minq ? '&minq=' + minq : '') +
+                '&junk=' + junk +
+                '&audio=' + audio
+        }
+
         function normTitle(s){
             return (s || '').toLowerCase()
                 .replace(/[«»"'`!?:.,()\[\]{}–—|]/g, ' ')
@@ -112,7 +138,7 @@
                 .trim()
         }
 
-        // выбрать из результатов TMDB лучший матч для раздачи
+        // выбрать из результатов TMDB лучший матч для фильма
         function pickBest(results, item){
             var best = null, bestScore = -1
 
@@ -194,6 +220,7 @@
         function TrackersScreen(object){
             var comp = new Lampa.InteractionCategory(object)
             var net = new Lampa.Reguest()
+            var sort = object.top_sort || 'seeds'
 
             comp.create = function(){
                 var base = serverUrl()
@@ -212,7 +239,7 @@
 
                 net.timeout(15000)
 
-                net.silent(base + '/top?cat=video&pages=2', function(json){
+                net.silent(base + trackersQuery(sort), function(json){
                     var items = (json && json.items) || []
 
                     mapLimit(items.slice(0, MATCH_LIMIT), 4, matchOne, function(matched){
@@ -226,7 +253,7 @@
 
                             var key = el.media_type + ':' + el.id
 
-                            if(seen[key]) continue // сервер уже отсортирован по сидам — первый и есть топовый
+                            if(seen[key]) continue // сервер уже схлопнул раздачи — первый и есть топовый
                             seen[key] = true
 
                             el.source = 'tmdb'
@@ -249,7 +276,66 @@
                 })
             }
 
+            comp.onRight = function(){
+                Lampa.Select.show({
+                    title: T('trackers_sort'),
+                    items: [
+                        { title: T('sort_seeds'), sort: 'seeds' },
+                        { title: T('sort_top'),   sort: 'top' }
+                    ],
+                    onSelect: function(item){
+                        Lampa.Select.close()
+
+                        Lampa.Activity.push({
+                            url: '',
+                            title: T('menu_trackers') + ' · ' + item.title,
+                            component: 'top_trackers',
+                            page: 1,
+                            top_sort: item.sort
+                        })
+                    },
+                    onBack: function(){
+                        Lampa.Controller.toggle('content')
+                    }
+                })
+            }
+
             return comp
+        }
+
+        //---------- «Мой фильтр»: Lampa не помнит применённый фильтр каталога,
+        //---------- запоминаем на событии activity и открываем одним нажатием
+
+        Lampa.Listener.follow('activity', function(e){
+            if(e.type !== 'create' || e.component !== 'category_full' || !e.object) return
+
+            var url = e.object.url || ''
+
+            if(url.indexOf('discover/') === 0){
+                Lampa.Storage.set('top_last_filter', {
+                    url: url,
+                    source: e.object.source || 'tmdb'
+                })
+            }
+        })
+
+        function openMyFilter(){
+            var saved = Lampa.Storage.get('top_last_filter', null)
+
+            if(!saved || !saved.url){
+                Lampa.Noty.show(T('my_filter_empty'), { time: 6000 })
+
+                return
+            }
+
+            Lampa.Activity.push({
+                url: saved.url,
+                title: T('menu_myfilter'),
+                component: 'category_full',
+                source: saved.source,
+                card_type: true,
+                page: 1
+            })
         }
 
         //---------- регистрация экранов
@@ -267,8 +353,12 @@
             '<path d="M8 8 v10 a10 10 0 0 0 20 0 v-10"/><line x1="8" y1="8" x2="8" y2="13"/><line x1="28" y1="8" x2="28" y2="13"/><line x1="13" y1="8" x2="13" y2="11"/><line x1="23" y1="8" x2="23" y2="11"/>' +
             '</svg>'
 
+        var ico_filter = '<svg viewBox="0 0 36 36" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M6 9 h24 l-9 11 v9 l-6 -3 v-6 z"/>' +
+            '</svg>'
+
         Lampa.Menu.addButton(ico_top, T('menu_top'), function(){
-            pushVariant(VARIANTS[0])
+            pushVariant(VARIANTS[lastVariantIndex()])
         })
 
         Lampa.Menu.addButton(ico_trackers, T('menu_trackers'), function(){
@@ -279,6 +369,24 @@
                 page: 1
             })
         })
+
+        Lampa.Menu.addButton(ico_filter, T('menu_myfilter'), openMyFilter)
+
+        //---------- «Топ» вместо главной
+
+        if(Lampa.Storage.field('top_as_home') === true){
+            try{
+                Lampa.Activity.replace({
+                    url: '',
+                    title: VARIANTS[lastVariantIndex()].title,
+                    component: 'top_screen',
+                    page: 1,
+                    top_method: VARIANTS[lastVariantIndex()].method,
+                    top_params: VARIANTS[lastVariantIndex()].params || null
+                })
+            }
+            catch(e){}
+        }
 
         //---------- настройки
 
@@ -299,9 +407,57 @@
             field: {
                 name: T('settings_server'),
                 description: T('settings_server_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_as_home',
+                type: 'trigger',
+                default: false
             },
-            onChange: function(){
-                Lampa.Activity.replace({})
+            field: {
+                name: T('settings_as_home'),
+                description: T('settings_as_home_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_min_quality',
+                type: 'select',
+                values: ['Любое', '720p+', '1080p+', '2160p+'],
+                default: 'Любое'
+            },
+            field: {
+                name: T('settings_min_quality')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_no_cam',
+                type: 'trigger',
+                default: true
+            },
+            field: {
+                name: T('settings_no_cam'),
+                description: T('settings_no_cam_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_dub_only',
+                type: 'trigger',
+                default: false
+            },
+            field: {
+                name: T('settings_dub_only')
             }
         })
 
@@ -310,13 +466,24 @@
         Lampa.Lang.add({
             top_menu_top:          { ru: 'Топ',                    en: 'Top' },
             top_menu_trackers:     { ru: 'Топ трекеров',           en: 'Tracker top' },
+            top_menu_myfilter:     { ru: 'Мой фильтр',             en: 'My filter' },
             top_variants:          { ru: 'Что показать',           en: 'What to show' },
+            top_trackers_sort:     { ru: 'Сортировка топа',        en: 'Top sorting' },
+            top_sort_seeds:        { ru: 'По сидам · сейчас',      en: 'By seeders · now' },
+            top_sort_top:          { ru: 'Классика · за всё время (NNM)', en: 'All-time classics (NNM)' },
             top_need_server:       { ru: 'Укажите адрес сервера tracker-top в настройках', en: 'Set tracker-top server address in settings' },
             top_server_fail:       { ru: 'Сервер топа недоступен', en: 'Top server unreachable' },
             top_trackers_matched:  { ru: 'Совпало с TMDB:',        en: 'Matched on TMDB:' },
+            top_my_filter_empty:   { ru: 'Примените фильтр в разделе «Фильтр» — я его запомню', en: 'Apply a filter in the Filter section — I will remember it' },
             top_settings_name:     { ru: 'Топ',                    en: 'Top' },
             top_settings_server:   { ru: 'Адрес сервера топа',     en: 'Top server address' },
-            top_settings_server_desc: { ru: 'tracker-top: https://… (micro/VPN), см. репо', en: 'tracker-top: https://… (see repo)' }
+            top_settings_server_desc: { ru: 'tracker-top: https://… (см. репо); сейчас micro-tracker.koi-uaru.ts.net', en: 'tracker-top: https://… (see repo)' },
+            top_settings_as_home:  { ru: '«Топ» вместо главной',   en: 'Top as home screen' },
+            top_settings_as_home_desc: { ru: 'при запуске открывается последний вариант «Топа»', en: 'open last used Top variant on start' },
+            top_settings_min_quality: { ru: 'Мин. качество (трекеры)', en: 'Min quality (trackers)' },
+            top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
+            top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
+            top_settings_dub_only: { ru: 'Только дубляж (трекеры)', en: 'Dub only (trackers)' }
         })
     }
 

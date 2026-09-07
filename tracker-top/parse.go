@@ -91,8 +91,11 @@ var (
 	q1080Re = regexp.MustCompile(`(?i)1080p?i?`)
 	q720Re  = regexp.MustCompile(`(?i)720p?i?`)
 
-	dubRe   = regexp.MustCompile(`(?i)дубляж|дубл[её]`)
-	tsRe    = regexp.MustCompile(`(?i)звук с\s?ts|camrip|зрительный зал`)
+	dubRe = regexp.MustCompile(`(?i)дубляж|дубл[её]`)
+	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
+	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
+	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
+	camRe   = regexp.MustCompile(`(?i)\b(cam|ts|tc|hdts|telesync|telecine|scr)\b|camrip|зрительный зал`)
 	voiceRe = regexp.MustCompile(`(?i)(LostFilm|Кубик в Кубе|NewStudio|Jaskier|Red ?Head Sound|` +
 		`HDrezka(?: Studio)?|Kerob|TVShows|MetalVoice|Amazing Dubbing|Синема УС|Ирония Судьбы|Дубляж)`)
 )
@@ -151,10 +154,10 @@ func atoiSafe(s string) (int, bool) {
 
 // ---------- NNMClub
 
-func nnmTop(cat string, pages int) ([]Item, error) {
+func nnmTop(cat string, pages int, order int) ([]Item, error) {
 	var pagesHTML []string
 	for p := 0; p < pages; p++ {
-		body, err := fetch(fmt.Sprintf("%s/forum/tracker.php?o=10&start=%d", nnmBase, pageSize*p))
+		body, err := fetch(fmt.Sprintf("%s/forum/tracker.php?o=%d&start=%d", nnmBase, order, pageSize*p))
 		if err != nil {
 			return nil, err
 		}
@@ -209,6 +212,7 @@ func parseNNM(body string) []Item {
 			Quality: parseQuality(title),
 			Dub:     dubRe.MatchString(title),
 			TsSound: tsRe.MatchString(title),
+			Cam:     camRe.MatchString(title),
 		}
 		it.Voice = voiceOf(title)
 
@@ -341,6 +345,7 @@ func parseRutor(body string) []Item {
 			Quality: parseQuality(title),
 			Dub:     dubRe.MatchString(title),
 			TsSound: tsRe.MatchString(title),
+			Cam:     camRe.MatchString(title),
 			Voice:   voiceOf(title),
 		}
 
