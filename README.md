@@ -11,16 +11,16 @@
 |---|---|---|
 | **Скачать .torrent** | у раздачи есть прямая http(s)-ссылка на файл | браузерная загрузка |
 | **Скопировать магнет** | есть магнет | магнет в буфер обмена |
-| **Открыть магнет** (всегда последним) | есть магнет | `window.location = magnet:` → системный обработчик |
+| **Открыть магнет** (всегда последним) | есть магнет | `window.location = magnet:` → системный обработчик схемы |
 
 Сценарии:
 
-- **Mac**: «Открыть магнет» → Lampa Magnet.app → `ssh micro` → `transmission-remote -a` →
-  торрент на сидбоксе в один тап (см. `mac-handler/`). Альтернативы: «Скопировать магнет» →
-  Transmission Remote GUI; «Скачать .torrent» → загрузки → folder action.
-- **iPhone**: «Скопировать магнет» → вставить в NASctl. «Открыть магнет» сработает, только
-  если установлено приложение, зарегистрировавшее схему `magnet:` (iOS сама не открывает).
-- **Apple TV**: пункты появляются, но скачивать там некуда.
+- **Mac**: «Открыть магнет» → приложение по умолчанию для `magnet:`
+  (например, Transmission Remote GUI) → добавление на сервер. Запасные пути:
+  «Скопировать магнет» → вставить в TRG; «Скачать .torrent» → загрузки → folder action.
+- **iPhone**: «Открыть магнет» → приложение-обработчик magnet: (например, NASctl,
+  откроет окно подтверждения). «Скопировать магнет» → вставить в NASctl.
+- **Apple TV**: пункты появляются, но качать там некуда.
 
 ## Установка плагина
 
@@ -31,26 +31,20 @@ https://0x3654.github.io/transmission-send/transmission-send.js
 Настройки → Расширения → «+» → вставить URL. На каждом устройстве отдельно
 (PWA на iPhone — отдельно от вкладки Safari).
 
-## Обработчик magnet: для macOS (mac-handler/)
+## Выбор приложения-обработчика magnet: на macOS
 
-Чтобы «Открыть магнет» добавлял торрент на сервер Transmission:
+Системного UI для схем нет; переключается записью в LaunchServices
+(TRG здесь для примера, bundle id `com.transgui`):
 
 ```bash
-cd mac-handler
-./install.sh
+defaults write com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers \
+  -array-add '<dict><key>LSHandlerURLScheme</key><string>magnet</string>\
+<key>LSHandlerRoleAll</key><string>com.transgui</string></dict>'
+killall lsd
 ```
 
-Что делает: компилирует `~/Applications/Lampa Magnet.app` (AppleScript: ловит магнет,
-дёргает `ssh micro transmission-remote 127.0.0.1:9091 -a <магнет>`), регистрирует схему
-`magnet:` в LaunchServices. Требования: ssh-ключ на сервер, `transmission-remote` на нём.
-
-Проверка (безвредный нулевой хеш): `open 'magnet:?xt=urn:btih:0000...'` — выскочит
-уведомление. Сброс привязки схемы:
-`defaults delete com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers`.
-
-Зачем так: в Transmission 4.1.3+ CORS из RPC удалён, поэтому браузер (и PWA) не может
-стучаться в RPC напрямую — нативный обработчик схемы обходит это легально, как
-Transmission Remote GUI.
+Проверить: `open 'magnet:?xt=urn:btih:0000000000000000000000000000000000000000'`.
+Bundle id любого приложения: `osascript -e 'id of app "Имя"'`.
 
 ## Разработка
 
