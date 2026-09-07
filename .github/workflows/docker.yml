@@ -33,6 +33,8 @@ jobs:
         with:
           context: tracker-top
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            GIT_REV=${{ github.sha }}
           push: true
           tags: |
             ${{ env.IMAGE }}:latest
