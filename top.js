@@ -141,11 +141,14 @@
 
         // строка запроса из настроек плагина
         function trackersQuery(sort){
-            var minqMap = { '720p+': '720', '1080p+': '1080', '2160p+': '2160' }
-            var minq    = minqMap[Lampa.Storage.field('top_min_quality')] || ''
-            var junk    = Lampa.Storage.field('top_no_cam') === false ? '0' : '1'
-            var audio   = Lampa.Storage.field('top_dub_only') === true ? 'dub' : 'all'
-            var pages   = sort === 'top' ? 6 : 2 // классика меняется редко — копаем глубже
+            // Lampa хранит значения строками ('true'/'false', ключи select)
+            var field = function(name){ return String(Lampa.Storage.field(name)) }
+            var minq  = field('top_min_quality')
+            var junk  = field('top_no_cam') === 'false' ? '0' : '1'
+            var audio = field('top_dub_only') === 'true' ? 'dub' : 'all'
+            var pages = sort === 'top' ? 6 : 2 // классика меняется редко — копаем глубже
+
+            if(minq === 'any' || minq === 'null' || minq === 'undefined') minq = ''
 
             return '/top?cat=video&pages=' + pages +
                 '&sort=' + (sort || 'seeds') +
@@ -397,7 +400,7 @@
 
         //---------- «Топ» вместо главной
 
-        if(Lampa.Storage.field('top_as_home') === true){
+        if(String(Lampa.Storage.field('top_as_home')) === 'true'){
             try{
                 Lampa.Activity.replace({
                     url: '',
@@ -424,6 +427,7 @@
             param: {
                 name: 'top_server_url',
                 type: 'input',
+                values: 'string', // обязательный маркер для input в Lampa
                 default: '',
                 placeholder: 'http://192.168.1.2:8355'
             },
@@ -451,8 +455,8 @@
             param: {
                 name: 'top_min_quality',
                 type: 'select',
-                values: ['Любое', '720p+', '1080p+', '2160p+'],
-                default: 'Любое'
+                values: { any: 'Любое', '720': '720p+', '1080': '1080p+', '2160': '2160p+' },
+                default: 'any'
             },
             field: {
                 name: T('settings_min_quality')

@@ -103,6 +103,12 @@ assert.strictEqual(calls.menu[2].title, 'top_menu_myfilter')
 assert.strictEqual(calls.settingsComponent.component, 'top')
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
     ['top_server_url', 'top_as_home', 'top_min_quality', 'top_no_cam', 'top_dub_only'])
+assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
+{
+    const sel = calls.params[2].param.values
+    assert.strictEqual(Object.keys(sel).sort().join(','), '1080,2160,720,any', 'select — объект ключ→название')
+    assert.strictEqual(sel.any, 'Любое')
+}
 console.log('✓ регистрация: 2 экрана, 3 пункта меню, 5 параметров настроек')
 
 // --- 2. «Топ»: меню пушит дефолтный вариант, выбор запоминается
@@ -127,9 +133,9 @@ console.log('✓ TopScreen: запрос и пагинация nextPageReuest')
 
 // --- 4. «Топ трекеров»: запрос собирается из настроек
 state.fields.top_server_url = 'http://10.1.1.1:8355'
-state.fields.top_min_quality = '1080p+'
-state.fields.top_no_cam = true
-state.fields.top_dub_only = false
+state.fields.top_min_quality = '1080'
+state.fields.top_no_cam = 'true'
+state.fields.top_dub_only = 'false'
 state.serverJson = { items: [
     { ru: 'Холоп 3', orig: '', year: 2026, season: false },
     { ru: 'Сборник софта', orig: '', year: 2021, season: false }
@@ -148,8 +154,8 @@ assert.strictEqual(comp.built.results.length, 1, 'софт отсеян матч
 console.log('✓ «Топ трекеров»: настройки качества/CAM/дубляжа уходят в запрос')
 
 // --- 5. выключенные фильтры
-state.fields.top_no_cam = false
-state.fields.top_dub_only = true
+state.fields.top_no_cam = 'false'
+state.fields.top_dub_only = 'true'
 comp = new calls.components['top_trackers']({ page: 1, top_sort: 'top' })
 comp.create()
 assert.ok(calls.urls[1].includes('junk=0') && calls.urls[1].includes('audio=dub') && calls.urls[1].includes('sort=top'))
