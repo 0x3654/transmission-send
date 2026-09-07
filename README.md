@@ -88,6 +88,38 @@ watchtower) → `https://micro-tracker.koi-uaru.ts.net`. Нюанс tsdproxy: о
 
 ---
 
+## nnm-rss — личные RSS-ленты NNM-Club
+
+Мультипользовательский сервис в духе [lostfilmfeed](https://lostfilmfeed.byalex.dev):
+регистрируешься на сервисе, вставляешь cookie трекера (`bb_data` — логин/пароль
+не подходит, на login.php капча), подписываешься на разделы и конкретные раздачи
+через веб, получаешь личную ленту для торрент-клиента. `.torrent` качается
+сессией юзера → пасскей в announce → скачивания идут в его статистику на трекере.
+
+- источники — родные ленты трекера (`rss.php?f=<раздел>&t=1` новые раздачи,
+  `rss.php?topic=<тема>` новые посты), cp1251 → utf-8
+- фильтры-регэкспы на подписку (включение/исключение), вкл/выкл, всё в вебе
+- ссылки в ленте ленивые: `/dl/<token>` сам резолвит тему/пост → `download.php?id`
+  и отдаёт `.torrent`; без cookie отдаются исходные ссылки на темы
+- состояние — один JSON на томе `/data` (без внешней БД), bcrypt-пароли,
+  сессии 30 дней, лента по секретному токену, brute-force лимит на логин
+- env: `NNM_BASE`, `PORT` (8356), `DATA_DIR` (/data), `TTL` (600),
+  `REGISTRATION=off` — закрыть регистрацию (для публичного VPS)
+
+    GET  /                веб-интерфейс
+    GET  /rss/{token}     личная лента
+    GET  /dl/{token}?topic=|post=|id=&name=   .torrent с cookie юзера
+    GET  /healthz
+
+Локально: `cd nnm-rss && go run .` (тесты `go test ./...` — на снимках из `tests/`).
+
+Образ: `ghcr.io/0x3654/nnm-rss` (CI, deps → test → build → scratch, non-root,
+healthcheck). Инстанс: **micro**, `/git/docker/nnm-rss/compose.yaml` (host-сеть +
+tsdproxy `micro-nnm`). Для transmission-rss на том же хосте лента берётся с
+`http://127.0.0.1:8356` — ссылки `/dl` строятся от хоста запроса.
+
+---
+
 ## Пункты меню transmission-send
 
 В порядке появления (наши — после встроенных пунктов Lampa):

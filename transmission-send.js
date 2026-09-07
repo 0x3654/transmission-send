@@ -32,7 +32,7 @@
                     if((list[i].url || '') === url && list[i].name !== 'Transmission Send'){
                         list[i].name   = 'Transmission Send'
                         list[i].author = '@0x3654'
-                        list[i].descr  = 'Отправка торрентов в Transmission через меню долгого нажатия'
+                        list[i].descr  = 'Магнет из меню долгого нажатия: копировать или открыть системным обработчиком'
                         named = true
                     }
                 }

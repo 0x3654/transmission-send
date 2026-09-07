@@ -38,6 +38,14 @@ sandbox.Lampa = {
 vm.createContext(sandbox)
 vm.runInContext(source, sandbox)
 
+// --- 0. самоименовывание: честное описание без обещаний про скачивание
+{
+    const rec = sandbox.Lampa.Plugins.get()[0]
+    assert.strictEqual(rec.name, 'Transmission Send')
+    assert.ok(!/скачиван|Transmission через меню/i.test(rec.descr), 'описание без «отправки в Transmission»')
+}
+console.log('✓ подпись плагина: имя + честное описание')
+
 const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 
 // --- 1. регистрация

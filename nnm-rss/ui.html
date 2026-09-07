@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nnm-rss — личные RSS-ленты NNM-Club</title>
+<style>
+  :root { --blue:#2c6e9b; --bg:#f2f4f7; --card:#fff; --text:#222; --muted:#7a828c;
+          --line:#dde2e8; --ok:#2e8b57; --err:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--text); }
+  .wrap { max-width:680px; margin:0 auto; padding:28px 16px 60px; }
+  header { text-align:center; margin-bottom:26px; }
+  header h1 { font-size:26px; margin:0; }
+  header h1 span { color:var(--blue); }
+  header p { color:var(--muted); margin:6px 0 0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:20px; margin-bottom:18px; }
+  .card h2 { font-size:16px; margin:0 0 6px; }
+  .card .hint { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  input[type=text], input[type=password] { width:100%; padding:9px 11px; border:1px solid var(--line);
+          border-radius:7px; font:inherit; background:#fff; }
+  input:focus { outline:none; border-color:var(--blue); }
+  .row { display:flex; gap:10px; }
+  .row > * { flex:1; }
+  button { padding:9px 16px; border:0; border-radius:7px; background:var(--blue); color:#fff;
+           font:inherit; cursor:pointer; white-space:nowrap; }
+  button:hover { opacity:.9; }
+  button.ghost { background:#eef1f5; color:var(--text); }
+  button.mini { padding:4px 9px; font-size:13px; }
+  .msg { margin-top:10px; font-size:14px; min-height:20px; }
+  .msg.ok { color:var(--ok); } .msg.err { color:var(--err); }
+  .feedurl { display:flex; gap:10px; align-items:center; }
+  .feedurl input { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+  .tabs { display:flex; margin-bottom:18px; background:var(--card); border:1px solid var(--line);
+          border-radius:10px; overflow:hidden; }
+  .tabs button { border-radius:0; background:transparent; color:var(--muted); flex:1; }
+  .tabs button.on { background:var(--blue); color:#fff; }
+  .sub { display:flex; align-items:center; gap:10px; padding:12px 0; border-top:1px solid var(--line); }
+  .sub:first-of-type { border-top:0; padding-top:4px; }
+  .sub .t { flex:1; min-width:0; }
+  .sub .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sub .t small { color:var(--muted); display:block; overflow:hidden; text-overflow:ellipsis;
+                  white-space:nowrap; }
+  .badge { font-size:11px; background:#eef1f5; border-radius:5px; padding:2px 7px; color:var(--muted); }
+  .sw { position:relative; width:38px; height:22px; flex:none; cursor:pointer; }
+  .sw input { opacity:0; width:0; height:0; }
+  .sw i { position:absolute; inset:0; background:#cdd4dc; border-radius:22px; transition:.15s; }
+  .sw i:before { content:""; position:absolute; width:16px; height:16px; border-radius:50%;
+                 background:#fff; top:3px; left:3px; transition:.15s; }
+  .sw input:checked + i { background:var(--ok); }
+  .sw input:checked + i:before { transform:translateX(16px); }
+  .status { display:inline-block; margin-left:8px; font-size:13px; }
+  .ok-text { color:var(--ok); } .err-text { color:var(--err); }
+  .del { background:transparent; color:var(--muted); font-size:16px; padding:4px 8px; }
+  .del:hover { color:var(--err); opacity:1; }
+  footer { text-align:center; color:var(--muted); font-size:12px; }
+  ol { margin:8px 0 0; padding-left:20px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>nnm<span>-rss</span></h1>
+    <p>Личные RSS-ленты NNM-Club для торрент-клиента</p>
+  </header>
+
+  <!-- авторизация -->
+  <div id="auth" style="display:none">
+    <div class="tabs">
+      <button id="tab-login" class="on">Вход</button>
+      <button id="tab-reg">Регистрация</button>
+    </div>
+    <div class="card">
+      <div class="row">
+        <input id="a-login" type="text" placeholder="логин" autocomplete="username">
+        <input id="a-pass" type="password" placeholder="пароль" autocomplete="current-password">
+        <button id="a-go">Войти</button>
+      </div>
+      <div id="a-msg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- приложение -->
+  <div id="app" style="display:none">
+
+    <div class="card">
+      <h2>Аккаунт NNM-Club <span id="nnm-status"></span></h2>
+      <p class="hint">Скачивания пойдут вашей сессией — с вашим пасскеем, в вашу статистику на трекере.</p>
+      <div class="row">
+        <input id="cookie" type="password" placeholder="bb_data=…">
+        <button id="cookie-save">Проверить</button>
+      </div>
+      <details>
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px">Где взять cookie</summary>
+        <ol>
+          <li>Войдите на nnmclub.to в браузере</li>
+          <li>F12 → Application → Cookies → <b>bb_data</b> (или «Копировать → Копировать значение»)</li>
+          <li>Вставьте значение целиком сюда</li>
+        </ol>
+      </details>
+      <div id="cookie-msg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Моя лента</h2>
+      <p class="hint">Добавьте этот URL в торрент-клиент (transmission-rss, qBittorrent и т.п.).</p>
+      <div class="feedurl">
+        <input id="feed" type="text" readonly>
+        <button id="copy">Копировать</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Подписки</h2>
+      <p class="hint">Вставьте ссылку раздела (tracker.php?f=…) или конкретной раздачи (viewtopic.php?t=…).
+        Фильтры — регулярные выражения по названию, можно оставить пустыми.</p>
+      <div class="row">
+        <input id="s-url" type="text" placeholder="ссылка с nnmclub.to">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="s-filter" type="text" placeholder="фильтр: 1080|2160">
+        <input id="s-exclude" type="text" placeholder="исключить: camrip|звук с TS">
+        <button id="s-add">Добавить</button>
+      </div>
+      <div id="s-msg" class="msg"></div>
+      <div id="subs"></div>
+    </div>
+
+    <div style="text-align:center;margin-top:6px">
+      <button class="ghost" id="logout">Выйти</button>
+    </div>
+  </div>
+
+  <footer>nnm-rss · раздачи качаются вашей сессией трекера · статистика — ваша</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let regMode = false, me = null;
+
+async function api(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+function msg(el, text, ok) {
+  el.textContent = text || '';
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+async function load() {
+  try {
+    me = await api('GET', '/api/me');
+  } catch (e) {
+    if (e.message.includes('авторизован')) {
+      $('auth').style.display = '';
+      $('app').style.display = 'none';
+      return;
+    }
+    throw e;
+  }
+  $('auth').style.display = 'none';
+  $('app').style.display = '';
+  $('feed').value = me.feed_url;
+
+  const st = $('nnm-status');
+  if (me.nnm.set && me.nnm.user)
+    st.innerHTML = `<span class="ok-text">✓ ${me.nnm.user}</span>`;
+  else if (me.nnm.set)
+    st.innerHTML = `<span class="err-text">cookie не проверен</span>`;
+  else
+    st.innerHTML = `<span class="err-text">✗ не настроен</span>`;
+
+  renderSubs();
+}
+
+function renderSubs() {
+  const box = $('subs');
+  box.innerHTML = '';
+  if (!me.subs || !me.subs.length) {
+    box.innerHTML = '<p class="hint" style="margin-top:12px">Пока пусто — добавьте раздел или раздачу выше.</p>';
+    return;
+  }
+  for (const s of me.subs) {
+    const div = document.createElement('div');
+    div.className = 'sub';
+    const flt = [s.filter && 'фильтр: ' + s.filter, s.exclude && 'без: ' + s.exclude]
+      .filter(Boolean).join(' · ') || 'без фильтров';
+    div.innerHTML = `
+      <label class="sw"><input type="checkbox" ${s.enabled ? 'checked' : ''}><i></i></label>
+      <div class="t">
+        <b>${esc(s.title)}</b>
+        <small><span class="badge">${s.kind === 'forum' ? 'раздел' : 'раздача'}</span> ${esc(flt)}</small>
+      </div>
+      <button class="ghost mini" title="изменить фильтры">✎</button>
+      <button class="del" title="удалить">✕</button>`;
+    div.querySelector('.sw input').onchange = () => patch(s, {enabled: !s.enabled});
+    div.querySelector('.ghost').onclick = () => editSub(s);
+    div.querySelector('.del').onclick = () => {
+      if (!confirm('Удалить «' + s.title + '»?')) return;
+      api('DELETE', '/api/subs/' + s.id).then(load).catch(e => msg($('s-msg'), e.message));
+    };
+    box.appendChild(div);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+async function patch(s, body) {
+  try {
+    await api('PATCH', '/api/subs/' + s.id, body);
+    await load();
+  } catch (e) { msg($('s-msg'), e.message); }
+}
+
+function editSub(s) {
+  const f = prompt('Фильтр (регулярное выражение, пусто = всё):', s.filter || '');
+  if (f === null) return;
+  const x = prompt('Исключить (регулярное выражение):', s.exclude || '');
+  if (x === null) return;
+  patch(s, {filter: f.trim(), exclude: x.trim()});
+}
+
+// ----- авторизация
+$('tab-login').onclick = () => switchTab(false);
+$('tab-reg').onclick = () => switchTab(true);
+function switchTab(reg) {
+  regMode = reg;
+  $('tab-login').className = reg ? '' : 'on';
+  $('tab-reg').className = reg ? 'on' : '';
+  $('a-go').textContent = reg ? 'Зарегистрироваться' : 'Войти';
+}
+$('a-go').onclick = async () => {
+  const login = $('a-login').value.trim(), pass = $('a-pass').value;
+  if (!login || !pass) return msg($('a-msg'), 'заполните оба поля');
+  try {
+    await api('POST', regMode ? '/api/register' : '/api/login', {login, password: pass});
+    $('a-pass').value = '';
+    await load();
+  } catch (e) { msg($('a-msg'), e.message); }
+};
+
+// ----- cookie
+$('cookie-save').onclick = async () => {
+  const v = $('cookie').value.trim();
+  if (!v) return msg($('cookie-msg'), 'вставьте значение bb_data');
+  msg($('cookie-msg'), 'проверяю…');
+  try {
+    const r = await api('PUT', '/api/nnm', {cookie: v});
+    $('cookie').value = '';
+    msg($('cookie-msg'), '✓ сессия найдена: ' + r.user, true);
+    await load();
+  } catch (e) { msg($('cookie-msg'), e.message); }
+};
+
+// ----- подписки
+$('s-add').onclick = async () => {
+  const url = $('s-url').value.trim();
+  if (!url) return msg($('s-msg'), 'вставьте ссылку');
+  try {
+    await api('POST', '/api/subs', {
+      url,
+      filter: $('s-filter').value.trim(),
+      exclude: $('s-exclude').value.trim()
+    });
+    $('s-url').value = ''; $('s-filter').value = ''; $('s-exclude').value = '';
+    msg($('s-msg'), 'добавлено', true);
+    await load();
+  } catch (e) { msg($('s-msg'), e.message); }
+};
+
+$('copy').onclick = () => {
+  navigator.clipboard.writeText($('feed').value).then(() => {
+    $('copy').textContent = '✓';
+    setTimeout(() => $('copy').textContent = 'Копировать', 1200);
+  });
+};
+
+$('logout').onclick = async () => {
+  await api('POST', '/api/logout');
+  location.reload();
+};
+
+load();
+</script>
+</body>
+</html>

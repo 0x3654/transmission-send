@@ -231,18 +231,17 @@ func topicTitle(id int, cookie string) (string, error) {
 	return strings.TrimSpace(t), nil
 }
 
-// checkCookie — жива ли сессия; заодно username и uid с трекера
-func checkCookie(cookie string) (ok bool, username string, uid int) {
+// checkCookie — жива ли сессия; заодно username и uid с трекера.
+// err — сеть недоступна; пустой username — сессии нет (гость)
+func checkCookie(cookie string) (username string, uid int, err error) {
 	body, err := fetchNNM(nnmBase+"/forum/index.php", cookie)
 	if err != nil {
-		return false, "", 0
+		return "", 0, err
 	}
 	if m := profileRe.FindStringSubmatch(body); m != nil {
-		uid = atoiDefault(m[1])
-		username = strings.TrimSpace(m[2])
-		return true, username, uid
+		return strings.TrimSpace(m[2]), atoiDefault(m[1]), nil
 	}
-	return false, "", 0
+	return "", 0, nil
 }
 
 // ---------- прокси .torrent
