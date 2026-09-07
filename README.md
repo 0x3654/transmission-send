@@ -38,36 +38,41 @@ tracker-top (см. ниже; рабочий — `https://micro-tracker.koi-uaru.
 порог похожести названия; дубликаты раздач схлопываются по TMDB id (остаётся
 самая сидируемая).
 
-## tracker-top — сервер топа NNMClub
+## tracker-top — сервер топов трекеров
 
-Один файл `tracker-top/server.py`, без зависимостей (python3 stdlib):
-парсит топ-страницы NNMClub (cp1251), фильтрует видео-поддерево категорий
-(список разделов парсится со страницы, не хардкод), кэш в памяти, CORS `*`.
+Go, один статический бинарник (образ `scratch`, ~11 МБ). Источники:
 
-    GET /top?cat=video|all&pages=1..3[&limit=N]
+- **NNMClub** — `tracker.php?o=10`, топ по сидам; видео-поддерево категорий
+  парсится со страницы (не хардкод), cp1251
+- **RUTOR** — `/top/` (utf-8, с магнетами)
+
+Философия: отдаём **фильмы для поиска, а не ленту раздач** — дубликаты раздач
+одного фильма схлопываются в одну позицию (сиды суммируются, представителем
+становится лучшая раздача по качеству/размеру). Качество и озвучку пользователь
+выбирает позже в парсере Lampa на странице фильма; серверные фильтры оставлены
+как параметры API на всякий случай.
+
+    GET /top?src=both|nnm|rut&cat=video|all&pages=1..3&minq=720|1080|2160&audio=all|dub|no_ts
     GET /healthz
 
-Запуск локально: `PORT=8355 python3 tracker-top/server.py`.
-Тесты: `python3 tracker-top/tests/test_server.py` (парсер на живом снимке топа).
+Кэш в памяти (`TTL`, 600 с), CORS `*`. Зеркала — env `NNM_BASE` / `RUTOR_BASE`.
+
+Локально: `cd tracker-top && go run .` (тесты: `go test ./...` — парсеры
+прогоняются на живых снимках страниц из `tests/`).
 
 ### Деплой (docker)
 
-    docker build -t tracker-top tracker-top/
-    docker run -d --name tracker-top --restart unless-stopped -p 8355:8355 tracker-top
+Образ собирает CI: `ghcr.io/0x3654/tracker-top` (multi-stage: deps → test →
+build → scratch; тесты валит сборку при сломанном парсере; non-root, healthcheck).
 
-Рабочий инстанс: **micro**, `/git/docker/tracker-top/` (compose + git clone репо),
-`network_mode: host` + лейблы tsdproxy (`tsdproxy.name=micro-tracker`) →
-`https://micro-tracker.koi-uaru.ts.net`. Нюанс tsdproxy: он дайлит порты на
-интерфейсах хоста — контейнер должен быть либо host-сети (как transmission),
-либо публиковать порт; общей docker-сети с tsdproxy недостаточно.
+Рабочий инстанс: **micro**, `/git/docker/tracker-top/compose.yaml`
+(`network_mode: host` + лейблы tsdproxy `tsdproxy.name=micro-tracker` +
+watchtower) → `https://micro-tracker.koi-uaru.ts.net`. Нюанс tsdproxy: он
+дайлит порты на интерфейсах хоста — контейнер должен быть либо host-сети
+(как transmission), либо публиковать порт; общей docker-сети недостаточно.
 
-Зеркало трекера и TTL — через env `NNM_BASE` / `TTL` (по умолчанию
-`https://nnmclub.to`, 600 с). Сервер переносим: micro, VPN-сервер — в плагине
-меняется только адрес.
-
-В Lampa (https-страница) адрес должен быть https либо открываться из PWA без
-mixed-content ограничений; проще всего опубликовать сервис через tsdproxy
-(tailnet-домен с сертификатом).
+Сервер переносим: micro, VPN-сервер — в плагине меняется только адрес. В Lampa
+(https) адрес нужен https — проще всего через tsdproxy (tailnet-домен с сертом).
 
 ---
 
@@ -109,7 +114,7 @@ Bundle id любого приложения: `osascript -e 'id of app "Имя"'`
 
 - `node --check top.js && node smoke-top.js` — синтаксис и смоук-тесты top-плагина
 - `node --check transmission-send.js && node smoke-test.js` — то же для transmission-send
-- `python3 tracker-top/tests/test_server.py` — парсер tracker-top на живом снимке
+- `cd tracker-top && go test ./...` — парсеры/фильтры/дедуп на живых снимках
 - Хуки: `Lampa.Listener('torrent'/'torrent_file', onlong)` — официальная точка
   расширения (пуш пунктов в `e.menu` с собственным `onSelect`), проверено по
   исходникам Lampa 3.3.3 (github.com/yumata/lampa-source)
