@@ -287,8 +287,13 @@ func main() {
 		cat := param(q, "cat", "video")
 		pages := 1
 		if n, err := strconv.Atoi(param(q, "pages", "1")); err == nil {
-			if n > 3 {
-				n = 3
+			// классика меняется редко — даём копать глубже
+			limit := 3
+			if param(q, "sort", "seeds") == "top" {
+				limit = 10
+			}
+			if n > limit {
+				n = limit
 			}
 			if n > 0 {
 				pages = n

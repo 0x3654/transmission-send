@@ -123,8 +123,9 @@
             var minq    = minqMap[Lampa.Storage.field('top_min_quality')] || ''
             var junk    = Lampa.Storage.field('top_no_cam') === false ? '0' : '1'
             var audio   = Lampa.Storage.field('top_dub_only') === true ? 'dub' : 'all'
+            var pages   = sort === 'top' ? 6 : 2 // классика меняется редко — копаем глубже
 
-            return '/top?cat=video&pages=2' +
+            return '/top?cat=video&pages=' + pages +
                 '&sort=' + (sort || 'seeds') +
                 (minq ? '&minq=' + minq : '') +
                 '&junk=' + junk +

@@ -142,6 +142,7 @@ state.fields.top_dub_only = true
 comp = new calls.components['top_trackers']({ page: 1, top_sort: 'top' })
 comp.create()
 assert.ok(calls.urls[1].includes('junk=0') && calls.urls[1].includes('audio=dub') && calls.urls[1].includes('sort=top'))
+assert.ok(calls.urls[1].includes('pages=6'), 'классика копает глубже')
 console.log('✓ тумблеры: junk=0 / audio=dub / sort=top')
 
 // --- 6. сортировка топа трекеров через onRight
