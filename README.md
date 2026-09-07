@@ -30,7 +30,8 @@
   Раздачи, не сматчившиеся с TMDB (софт, игры, сборники), не показываются.
 
 Настройки плагина: **Настройки → Топ → Адрес сервера топа** — URL сервера
-tracker-top (см. ниже). Без адреса экран подскажет, куда его вписать.
+tracker-top (см. ниже; рабочий — `https://micro-tracker.koi-uaru.ts.net`).
+Без адреса экран подскажет, куда его вписать.
 
 Матчинг: запрос `search/multi` по оригинальному (или русскому) названию,
 жёсткий фильтр по году ±1 для фильмов (для сезонных раздач допуск больше),
@@ -53,6 +54,12 @@ tracker-top (см. ниже). Без адреса экран подскажет,
 
     docker build -t tracker-top tracker-top/
     docker run -d --name tracker-top --restart unless-stopped -p 8355:8355 tracker-top
+
+Рабочий инстанс: **micro**, `/git/docker/tracker-top/` (compose + git clone репо),
+`network_mode: host` + лейблы tsdproxy (`tsdproxy.name=micro-tracker`) →
+`https://micro-tracker.koi-uaru.ts.net`. Нюанс tsdproxy: он дайлит порты на
+интерфейсах хоста — контейнер должен быть либо host-сети (как transmission),
+либо публиковать порт; общей docker-сети с tsdproxy недостаточно.
 
 Зеркало трекера и TTL — через env `NNM_BASE` / `TTL` (по умолчанию
 `https://nnmclub.to`, 600 с). Сервер переносим: micro, VPN-сервер — в плагине
