@@ -24,6 +24,10 @@ sandbox.appready = true
 
 sandbox.Lampa = {
     Lang: { add(){}, translate: (k) => k },
+    Plugins: {
+        get(){ return [{ url: 'https://0x3654.github.io/transmission-send/transmission-send.js' }] },
+        save(){}
+    },
     Noty: { show(text, params){ calls.noty.push({ text, params }) } },
     Listener: { follow(type, fn){ (listeners[type] = listeners[type] || []).push(fn) } },
     Controller: { enabled: () => ({ name: 'torrents' }), toggle(name){ calls.toggled = name } },

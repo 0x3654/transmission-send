@@ -21,6 +21,27 @@
     function init(){
         var Lampa = window.Lampa
 
+        // Lampa не умеет брать имя/описание из кода плагина — только из каталога cub.
+        ;(function selfName(){
+            try{
+                var url   = 'https://0x3654.github.io/transmission-send/transmission-send.js'
+                var list  = Lampa.Plugins.get()
+                var named = false
+
+                for(var i = 0; i < list.length; i++){
+                    if((list[i].url || '') === url && list[i].name !== 'Transmission Send'){
+                        list[i].name   = 'Transmission Send'
+                        list[i].author = '@0x3654'
+                        list[i].descr  = 'Отправка торрентов в Transmission через меню долгого нажатия'
+                        named = true
+                    }
+                }
+
+                if(named) Lampa.Plugins.save()
+            }
+            catch(e){}
+        })()
+
         function T(name){
             return Lampa.Lang.translate('transmission_send_' + name)
         }

@@ -29,6 +29,28 @@
     function init(){
         var Lampa = window.Lampa
 
+        // Lampa не умеет брать имя/описание из кода плагина — только из каталога cub.
+        // Дописываем сами в свою запись списка расширений.
+        ;(function selfName(){
+            try{
+                var url    = 'https://0x3654.github.io/transmission-send/top.js'
+                var list   = Lampa.Plugins.get()
+                var named  = false
+
+                for(var i = 0; i < list.length; i++){
+                    if((list[i].url || '') === url && list[i].name !== 'Топ — топы и фильтры'){
+                        list[i].name   = 'Топ — топы и фильтры'
+                        list[i].author = '@0x3654'
+                        list[i].descr  = 'Топ TMDB, топ трекеров NNMClub/RUTOR, «Мой фильтр»'
+                        named = true
+                    }
+                }
+
+                if(named) Lampa.Plugins.save()
+            }
+            catch(e){}
+        })()
+
         function T(name){
             return Lampa.Lang.translate('top_' + name)
         }

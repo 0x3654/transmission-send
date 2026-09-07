@@ -10,7 +10,8 @@ const source = fs.readFileSync(__dirname + '/top.js', 'utf8')
 const calls = { menu: [], components: {}, params: [], push: [], replace: [], selects: [], noty: [],
                 settings: [], tmdb: [], urls: [] }
 const listeners = {}
-const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null }
+const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null,
+               plugins: [{ url: 'https://0x3654.github.io/transmission-send/top.js' }], saved: false }
 
 function InteractionCategory(object){
     this.object = object
@@ -61,6 +62,10 @@ sandbox.Lampa = {
         replace(a){ calls.replace.push(a) }
     },
     Select: { show(opts){ calls.selects.push(opts) }, close(){} },
+    Plugins: {
+        get(){ return state.plugins },
+        save(){ state.saved = true }
+    },
     Controller: { toggle(){} },
     Reguest,
     InteractionCategory,
@@ -81,6 +86,12 @@ vm.createContext(sandbox)
 vm.runInContext(source, sandbox)
 
 const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
+
+// --- 0. самоименовывание в списке расширений
+assert.strictEqual(state.plugins[0].name, 'Топ — топы и фильтры')
+assert.strictEqual(state.plugins[0].author, '@0x3654')
+assert.ok(state.saved, 'Plugins.save вызван')
+console.log('✓ плагин сам прописал имя/автора/описание в список расширений')
 
 // --- 1. регистрация
 assert.ok(calls.components['top_screen'], 'компонент top_screen')
