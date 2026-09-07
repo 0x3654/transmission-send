@@ -1,0 +1,13 @@
+// ==UserScript==
+// @name         Lampa → Transmission
+// @namespace    https://github.com/0x3654/transmission-send
+// @version      1.1.0
+// @description  Прямая отправка торрентов из Lampa (lampa.mx) в Transmission: долгое нажатие на раздаче → «Добавить в Transmission». В обход CORS через GM.xmlHttpRequest. Пункты «Скачать .torrent» и «Скопировать магнет» работают и без RPC.
+// @author       0x3654
+// @match        https://lampa.mx/*
+// @grant        GM.xmlHttpRequest
+// @connect      micro-transmission.koi-uaru.ts.net
+// @connect      *
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==

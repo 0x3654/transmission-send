@@ -1,92 +1,61 @@
 # Transmission Send — плагин для Lampa
 
-Добавляет в меню долгого нажатия на торренте (в списке раздач и в списке файлов)
-пункты, чтобы перекинуть раздачу в Transmission вместо просмотра онлайн.
+Минимальный плагин: пункты в меню долгого нажатия на торренте, чтобы перекинуть
+раздачу в Transmission вместо просмотра онлайн. Никаких настроек и RPC.
 
 ## Пункты меню
 
+В порядке появления (наши — после встроенных пунктов Lampa):
+
 | Пункт | Когда показывается | Что делает |
 |---|---|---|
-| **Скачать .torrent** | у раздачи есть прямая http(s)-ссылка на .torrent-файл | браузерная загрузка файла |
-| **Скопировать магнет** | есть магнет (кроме Apple TV) | магнет в буфер обмена |
-| **Открыть магнет** | есть магнет, Mac | `window.location = magnet:` → системный обработчик |
-| **Добавить в Transmission** | есть магнет | прямой RPC-запрос `torrent-add` |
+| **Скачать .torrent** | у раздачи есть прямая http(s)-ссылка на файл | браузерная загрузка |
+| **Скопировать магнет** | есть магнет | магнет в буфер обмена |
+| **Открыть магнет** (всегда последним) | есть магнет | `window.location = magnet:` → системный обработчик |
 
 Сценарии:
 
-- **Mac**: «Скачать .torrent» → файл падает в загрузки Safari → folder action скармливает его Transmission. Или «Скопировать магнет» → вставить в Transmission Remote GUI.
-- **iPhone**: «Скопировать магнет» → вставить в NASctl. Или «Скачать .torrent» → файл в iCloud Drive → синк на Mac → folder action.
-- **Прямой RPC** — работает при двух условиях: адрес RPC **https** и **Transmission ≤ 4.1.2** (в 4.1.3+ CORS-заголовки удалены полностью, браузер не пустит запрос со страницы lampa.mx). Если условия не выполняются — плагин покажет именованную ошибку и подсказку, пункты выше остаются рабочими.
+- **Mac**: «Открыть магнет» → Lampa Magnet.app → `ssh micro` → `transmission-remote -a` →
+  торрент на сидбоксе в один тап (см. `mac-handler/`). Альтернативы: «Скопировать магнет» →
+  Transmission Remote GUI; «Скачать .torrent» → загрузки → folder action.
+- **iPhone**: «Скопировать магнет» → вставить в NASctl. «Открыть магнет» сработает, только
+  если установлено приложение, зарегистрировавшее схему `magnet:` (iOS сама не открывает).
+- **Apple TV**: пункты появляются, но скачивать там некуда.
 
-## Хостинг плагина
+## Установка плагина
 
-Плагин — один файл `transmission-send.js`. Lampa грузит его по https-ссылке
-(MIME должен быть `application/javascript`).
+```
+https://0x3654.github.io/transmission-send/transmission-send.js
+```
 
-**GitHub Pages (рекомендую):**
+Настройки → Расширения → «+» → вставить URL. На каждом устройстве отдельно
+(PWA на iPhone — отдельно от вкладки Safari).
+
+## Обработчик magnet: для macOS (mac-handler/)
+
+Чтобы «Открыть магнет» добавлял торрент на сервер Transmission:
 
 ```bash
-gh repo create transmission-send --public --source=. --push
-gh api repos/{owner}/transmission-send/pages -X POST -f source[branch]=main -f source[path]=/
-# подождать пару минут, затем:
-# https://<user>.github.io/transmission-send/transmission-send.js
+cd mac-handler
+./install.sh
 ```
 
-**jsDelivr** (без включения Pages, но с кэшем ~12ч):
+Что делает: компилирует `~/Applications/Lampa Magnet.app` (AppleScript: ловит магнет,
+дёргает `ssh micro transmission-remote 127.0.0.1:9091 -a <магнет>`), регистрирует схему
+`magnet:` в LaunchServices. Требования: ssh-ключ на сервер, `transmission-remote` на нём.
 
-```
-https://cdn.jsdelivr.net/gh/<user>/transmission-send@main/transmission-send.js
-```
+Проверка (безвредный нулевой хеш): `open 'magnet:?xt=urn:btih:0000...'` — выскочит
+уведомление. Сброс привязки схемы:
+`defaults delete com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers`.
 
-⚠️ `raw.githubusercontent.com` **не подходит** — отдаёт `text/plain` + `nosniff`, скрипт не исполнится.
+Зачем так: в Transmission 4.1.3+ CORS из RPC удалён, поэтому браузер (и PWA) не может
+стучаться в RPC напрямую — нативный обработчик схемы обходит это легально, как
+Transmission Remote GUI.
 
-## Установка в Lampa
+## Разработка
 
-Настройки → Расширения → «+» → вставить URL плагина.
-
-Настройки хранятся в localStorage **каждого устройства** — на Mac, iPhone и Apple TV
-плагин нужно добавить отдельно (в PWA на iPhone — тоже отдельно от Safari-вкладки).
-
-Пункты «Скачать .torrent», «Скопировать магнет», «Открыть магнет» работают сразу,
-без конфигурации.
-
-## Настройки RPC (Настройки → Transmission)
-
-- **Адрес RPC** — `https://хост:9091`. `http://` со страницы `https://lampa.mx` браузер
-  заблокирует (mixed content) — плагин честно об этом скажет.
-- **Логин / Пароль** — авторизация Transmission RPC. Пароль хранится в localStorage
-  устройства в открытом виде (типа «password» в API Lampa нет).
-- **Метка (labels)** — метки для добавляемых торрентов через запятую (Transmission 4+;
-  пусто = не отправлять).
-- **Проверить соединение** — покажет версию Transmission или причину блокировки.
-
-### Как дать RPC адрес https без боли: Tailscale Serve
-
-На Linux-сервере с Transmission (если он в tailnet):
-
-```bash
-sudo tailscale serve --bg 9091
-```
-
-Появится `https://<хост>.<tailnet>.ts.net` с валидным сертификатом. В настройках
-плагина укажите `https://<хост>.<tailnet>.ts.net` — этого достаточно для mixed content.
-Для CORS по-прежнему нужен Transmission ≤ 4.1.2. Проверить версию:
-`transmission-remote <хост>:9091 --auth <user>:<pass> -si` или кнопка
-«Проверить соединение».
-
-## Диагностика
-
-| Сообщение | Причина | Что делать |
-|---|---|---|
-| `mixed content` | страница https, адрес RPC http | https-адрес (tailscale serve) |
-| `session-id (… ≥ 4.1.3)` | Transmission 4.1.3+ без CORS-заголовков | использовать копирование/скачивание |
-| `Нет соединения (сервер недоступен или CORS)` | сервер не отвечает или CORS не пропустил preflight | проверить хост/порт, версию Transmission |
-| `Торрент уже добавлен` | дубликат в Transmission | это не ошибка |
-
-## Технические детали
-
-- Хук: `Lampa.Listener('torrent'/'torrent_file', onlong)` — событие стреляет до открытия
-  меню, плагин пушит пункты с собственным `onSelect` (официальная точка расширения).
-- RPC: POST `torrent-add`, Basic auth, 409-handshake `X-Transmission-Session-Id`.
-- Смоук-тест логики: стабы Lampa API + прогон всех веток — `node smoke-test.js`.
-- Проверено по исходникам Lampa 3.3.3 (github.com/yumata/lampa-source).
+- `node --check transmission-send.js` — синтаксис
+- `node smoke-test.js` — смоук-тесты на стабах Lampa API
+- Хуки: `Lampa.Listener('torrent'/'torrent_file', onlong)` — официальная точка
+  расширения (пуш пунктов в `e.menu` с собственным `onSelect`), проверено по
+  исходникам Lampa 3.3.3 (github.com/yumata/lampa-source)
