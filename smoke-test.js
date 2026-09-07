@@ -64,19 +64,17 @@ assert.ok(menu[0].title.includes('menu_copy'))
 assert.ok(menu[1].title.includes('menu_open'), '«Открыть магнет» — последний пункт')
 console.log('✓ меню для магнет-раздачи: copy | open (open в самом низу)')
 
-// --- 3. меню: раздача только с http Link (.torrent) → только download
+// --- 3. меню: раздача только с http Link — пунктов нет (скачивание убрано)
 menu = []
 fire('torrent', { type:'onlong', menu, element: { Link: 'https://tr.example/dl/123.torrent' } })
-assert.strictEqual(menu.length, 1)
-assert.ok(menu[0].title.includes('menu_download'))
-console.log('✓ меню для .torrent-Link раздачи: download')
+assert.strictEqual(menu.length, 0, 'пунктов нет')
+console.log('✓ раздача без магнета: наших пунктов нет')
 
-// --- 4. меню: раздача с магнетом И Link → download + copy + open
+// --- 4. меню: магнет в Link (не MagnetUri)
 menu = []
-fire('torrent', { type:'onlong', menu, element: { MagnetUri: 'magnet:?x=1', Link: 'https://tr.example/dl/1.torrent' } })
-assert.strictEqual(menu.length, 3, 'download + copy + open')
-assert.ok(menu[2].title.includes('menu_open'), 'open всё ещё последний')
-console.log('✓ полная раздача: download | copy | open')
+fire('torrent', { type:'onlong', menu, element: { Link: 'magnet:?xt=urn:btih:FFF' } })
+assert.strictEqual(menu.length, 2, 'магнет распознан в Link')
+console.log('✓ магнет в Link: copy | open')
 
 // --- 5. torrent_file: copy + open из info-hash
 menu = []
@@ -84,23 +82,16 @@ fire('torrent_file', { type:'onlong', menu, element: { torrent_hash: 'DEADBEEF',
 assert.strictEqual(menu.length, 2)
 console.log('✓ torrent_file: copy | open из info-hash')
 
-// --- 6. действие download: anchor click + возврат фокуса
-menu = []
-fire('torrent', { type:'onlong', menu, element: { Link: 'https://tr.example/dl/1.torrent' } })
-menu[0].onSelect()
-assert.strictEqual(calls.anchorClicked, 1, 'клик по <a download>')
-assert.strictEqual(calls.toggled, 'torrents', 'Controller.toggle вернул фокус')
-console.log('✓ скачивание: anchor click + возврат фокуса')
-
-// --- 7. действие copy
+// --- 6. действие copy
 menu = []
 fire('torrent', { type:'onlong', menu, element: { MagnetUri: 'magnet:?xt=1' } })
 menu[0].onSelect()
 assert.strictEqual(calls.copied, 'magnet:?xt=1', 'магнет в буфере')
+assert.strictEqual(calls.toggled, 'torrents', 'Controller.toggle вернул фокус')
 assert.ok(calls.noty.some(n => n.params && n.params.style === 'success'), 'success-noty')
-console.log('✓ копирование магнета + нотификация')
+console.log('✓ копирование магнета + возврат фокуса')
 
-// --- 8. действие open: window.location = magnet
+// --- 7. действие open: window.location = magnet
 menu = []
 fire('torrent', { type:'onlong', menu, element: { MagnetUri: 'magnet:?xt=2' } })
 calls.location = null
@@ -108,7 +99,7 @@ Object.defineProperty(sandbox, 'location', { value: { protocol: 'https:' }, writ
 menu[1].onSelect()
 console.log('✓ «Открыть магнет» вызывает навигацию по magnet: (window.location)')
 
-// --- 9. встроенные пункты Lampa остаются выше наших
+// --- 8. встроенные пункты Lampa остаются выше наших
 menu = [{ title: 'built-in: мои торренты' }]
 fire('torrent', { type:'onlong', menu, element: { MagnetUri: 'magnet:?x=9' } })
 assert.strictEqual(menu.length, 3, 'встроенный + copy + open')
