@@ -1,8 +1,9 @@
 package main
 
-// Клиент NNMClub: родные rss.php, страницы тем и постов, download.php с cookie
-// пользователя. Все раздачи качаются сессией юзера — пасскей в announce,
-// скачивания идут в его статистику на трекере.
+// Клиент NNMClub. Авторизации нет нигде: родные rss.php читает гость, info-hash
+// раздачи виден в магнит-ссылке на странице темы. Лента отдаёт магниты с
+// персональным announce юзера (bt02.nnm-club.cc:2710/<passkey>/announce) —
+// клиент аннонсит его ключом, статистика на трекере считается ему.
 
 import (
 	"errors"
@@ -146,12 +147,9 @@ func cleanTitle(s string) string {
 // ---------- страницы тем/постов → торрент
 
 var (
-	downloadRe = regexp.MustCompile(`download\.php\?id=(\d+)`)
-	magnetRe   = regexp.MustCompile(`magnet:\?xt=urn:btih:[A-Za-z0-9]+`)
+	magnetRe   = regexp.MustCompile(`magnet:\?xt=urn:btih:([A-Fa-f0-9]{40})`)
 	anchorRe   = regexp.MustCompile(`<a name="\d+">`)
 	titleTagRe = regexp.MustCompile(`(?s)<title>(.*?)</title>`)
-	// залогиненный header: ссылка на профиль с юзернеймом
-	profileRe = regexp.MustCompile(`profile\.php\?mode=viewprofile&(?:amp;)?u=(\d+)"[^>]*>([^<]{1,64})<`)
 )
 
 // postSegment — кусок страницы от якоря поста до якоря следующего поста:
@@ -168,55 +166,67 @@ func postSegment(body string, postID int) string {
 	return rest
 }
 
-// findTorrent — download id и магнит в сегменте страницы (или во всей)
-func findTorrent(seg string) (dlID int, magnet string) {
-	if dm := downloadRe.FindStringSubmatch(seg); dm != nil {
-		dlID = atoiDefault(dm[1])
+// findInfoHash — info-hash из магнит-ссылки в сегменте страницы (или во всей)
+func findInfoHash(seg string) string {
+	if m := magnetRe.FindStringSubmatch(seg); m != nil {
+		return m[1]
 	}
-	magnet = magnetRe.FindString(seg)
-	return
+	return ""
 }
 
-// resolveTorrent — id download.php по теме или посту; кэшируется: у всех
-// залогиненных одни и те же раздачи, гость многого не видит
-func resolveTorrent(kind string, id int, cookie string) (dlID int, magnet string, err error) {
-	cacheKey := fmt.Sprintf("%s:%d:%t", kind, id, cookie != "")
+// resolveInfoHash — info-hash раздачи по теме или посту (гостю магнит виден
+// на странице); кэшируется — ключ не зависит от юзера
+func resolveInfoHash(kind string, id int) (hash string, err error) {
+	cacheKey := fmt.Sprintf("%s:%d", kind, id)
 	cacheMu.Lock()
 	if e, ok := resolveCache[cacheKey]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
 		cacheMu.Unlock()
-		return e.dlID, e.magnet, nil
+		return e.hash, nil
 	}
 	cacheMu.Unlock()
 
 	var body, seg string
 	if kind == "topic" {
-		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), cookie)
+		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), "")
 		seg = body
 	} else {
-		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?p=%d", nnmBase, id), cookie)
+		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?p=%d", nnmBase, id), "")
 		seg = postSegment(body, id)
 		if seg == "" {
 			seg = body
 		}
 	}
 	if err != nil {
-		return 0, "", err
+		return "", err
 	}
 
-	dlID, magnet = findTorrent(seg)
-	if dlID == 0 {
-		// пост без раздачи (обсуждение) — это нормально, кэшируем пусто
-	}
+	hash = findInfoHash(seg) // пусто = пост без раздачи (обсуждение), кэшируем пусто
 
 	cacheMu.Lock()
-	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), dlID: dlID, magnet: magnet}
+	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), hash: hash}
 	cacheMu.Unlock()
-	return dlID, magnet, nil
+	return hash, nil
+}
+
+// magnetLink — магнит с персональными announce юзера: клиент будет аннонсить
+// его ключом, статистика зачтётся ему (механизм тот же, что у TrackerId lostfilm)
+func magnetLink(hash, passkey string) string {
+	trackers := []string{
+		"http://bt02.nnm-club.cc:2710/" + passkey + "/announce",
+		"http://bt.searchtor.to/" + passkey + "/announce",
+		"http://ipv6.bt.searchtor.to/" + passkey + "/announce",
+		"http://bt02.ipv6.nnm-club.cc:2710/" + passkey + "/announce",
+	}
+	s := "magnet:?xt=urn:btih:" + hash
+	for _, t := range trackers {
+		s += "&tr=" + url.QueryEscape(t)
+	}
+	return s
 }
 
 // topicTitle — «Название :: NNM-Club» из <title> страницы темы
-func topicTitle(id int, cookie string) (string, error) {
-	body, err := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), cookie)
+func topicTitle(id int) (string, error) {
+	body, err := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), "")
 	if err != nil {
 		return "", err
 	}
@@ -229,55 +239,6 @@ func topicTitle(id int, cookie string) (string, error) {
 		t = t[:i]
 	}
 	return strings.TrimSpace(t), nil
-}
-
-// checkCookie — жива ли сессия; заодно username и uid с трекера.
-// err — сеть недоступна; пустой username — сессии нет (гость)
-func checkCookie(cookie string) (username string, uid int, err error) {
-	body, err := fetchNNM(nnmBase+"/forum/index.php", cookie)
-	if err != nil {
-		return "", 0, err
-	}
-	if m := profileRe.FindStringSubmatch(body); m != nil {
-		return strings.TrimSpace(m[2]), atoiDefault(m[1]), nil
-	}
-	return "", 0, nil
-}
-
-// ---------- прокси .torrent
-
-// proxyTorrent — download.php?id= с cookie юзера; забирает .torrent с его
-// пасскеем в announce и отдаёт клиенту
-func proxyTorrent(w http.ResponseWriter, dlID int, cookie, name string) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/download.php?id=%d", nnmBase, dlID), nil)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	req.Header.Set("User-Agent", nnmUA)
-	req.Header.Set("Cookie", cookie)
-
-	resp, err := nnmClient.Do(req)
-	if err != nil {
-		http.Error(w, "NNM недоступен: "+err.Error(), 502)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 || strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-		http.Error(w, "NNM не отдал .torrent (HTTP "+strconv.Itoa(resp.StatusCode)+
-			") — проверьте cookie в настройках", 502)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/x-bittorrent")
-	w.Header().Set("Content-Disposition",
-		`attachment; filename="nnm-`+strconv.Itoa(dlID)+`.torrent"; filename*=UTF-8''`+url.PathEscape(name))
-	if resp.ContentLength > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
-	}
-	w.WriteHeader(200)
-	io.Copy(w, resp.Body)
 }
 
 // ---------- подписки: URL → вид + id
@@ -310,29 +271,6 @@ func subRSSURL(s *Sub) string {
 	return fmt.Sprintf("%s/forum/rss.php?topic=%d&c=50", nnmBase, s.NNMID) // новые посты темы
 }
 
-// slug — имя файла из названия раздачи
-func slug(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r >= 'а' && r <= 'я', r >= 'А' && r <= 'Я':
-			b.WriteRune(r)
-		case r == ' ', r == '.', r == '(', r == ')', r == '_', r == '-', r == '+':
-			b.WriteRune(r)
-		default:
-			b.WriteRune(' ')
-		}
-	}
-	out := strings.Join(strings.Fields(b.String()), " ")
-	if len([]rune(out)) > 100 {
-		out = string([]rune(out)[:100])
-	}
-	if out == "" {
-		out = "torrent"
-	}
-	return out + ".torrent"
-}
 
 func atoiDefault(s string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(s))

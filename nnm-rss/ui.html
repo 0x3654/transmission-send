@@ -51,12 +51,19 @@
                  background:#fff; top:3px; left:3px; transition:.15s; }
   .sw input:checked + i { background:var(--ok); }
   .sw input:checked + i:before { transform:translateX(16px); }
-  .status { display:inline-block; margin-left:8px; font-size:13px; }
-  .ok-text { color:var(--ok); } .err-text { color:var(--err); }
   .del { background:transparent; color:var(--muted); font-size:16px; padding:4px 8px; }
   .del:hover { color:var(--err); opacity:1; }
   footer { text-align:center; color:var(--muted); font-size:12px; }
   ol { margin:8px 0 0; padding-left:20px; color:var(--muted); font-size:13px; }
+  ol li { margin-bottom:4px; }
+  code { background:#eef1f5; border-radius:4px; padding:1px 5px; font-size:12.5px; }
+  .hist { max-height:340px; overflow-y:auto; }
+  .hi { display:flex; gap:12px; padding:8px 0; border-top:1px solid var(--line); font-size:14px; }
+  .hi:first-of-type { border-top:0; }
+  .hi .d { color:var(--muted); font-size:12.5px; white-space:nowrap; padding-top:2px; }
+  .hi .t { min-width:0; }
+  .hi .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+  .hi .t small { color:var(--muted); }
 </style>
 </head>
 <body>
@@ -82,30 +89,34 @@
     </div>
   </div>
 
-  <!-- приложение -->
+  <!-- моя подписка -->
   <div id="app" style="display:none">
 
     <div class="card">
-      <h2>Аккаунт NNM-Club <span id="nnm-status"></span></h2>
-      <p class="hint">Скачивания пойдут вашей сессией — с вашим пасскеем, в вашу статистику на трекере.</p>
+      <h2>Passkey (TrackerId)</h2>
+      <p class="hint">Ваш постоянный ключ на NNM-Club — как TrackerId у LostFilm. По нему трекер
+        считает раздачи вашими: лента отдаёт магниты с вашим личным announce. Вставляется один раз,
+        никогда не истекает. Логин, пароль и cookie не нужны.</p>
       <div class="row">
-        <input id="cookie" type="password" placeholder="bb_data=…">
-        <button id="cookie-save">Проверить</button>
+        <input id="passkey" type="text" placeholder="00680ffd1c4d0286486403595191d662" spellcheck="false">
+        <button id="passkey-save">Сохранить</button>
       </div>
       <details>
-        <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px">Где взять cookie</summary>
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px">Где взять passkey</summary>
         <ol>
-          <li>Войдите на nnmclub.to в браузере</li>
-          <li>F12 → Application → Cookies → <b>bb_data</b> (или «Копировать → Копировать значение»)</li>
-          <li>Вставьте значение целиком сюда</li>
+          <li>Скачайте любой torrent-файл с nnmclub.to и добавьте его в торрент-клиент</li>
+          <li>Свойства торрента → <b>Trackers</b> — трекер-URL вида
+            <code>http://bt02.nnm-club.cc:2710/<b>00680f…</b>/announce</code></li>
+          <li>Скопируйте 32 символа между <code>:2710/</code> и <code>/announce</code> — это и есть passkey</li>
         </ol>
       </details>
-      <div id="cookie-msg" class="msg"></div>
+      <div id="passkey-msg" class="msg"></div>
     </div>
 
     <div class="card">
       <h2>Моя лента</h2>
-      <p class="hint">Добавьте этот URL в торрент-клиент (transmission-rss, qBittorrent и т.п.).</p>
+      <p class="hint">Добавьте этот URL в торрент-клиент (transmission-rss, qBittorrent и т.п.).
+        В ленту попадает всё из включённых подписок ниже, прошедшее фильтры.</p>
       <div class="feedurl">
         <input id="feed" type="text" readonly>
         <button id="copy">Копировать</button>
@@ -128,12 +139,18 @@
       <div id="subs"></div>
     </div>
 
+    <div class="card">
+      <h2>История</h2>
+      <p class="hint">Последние раздачи, прошедшие через вашу ленту (обновляется когда торрент-клиент опрашивает ленту).</p>
+      <div id="history" class="hist"><p class="hint">Пока пусто.</p></div>
+    </div>
+
     <div style="text-align:center;margin-top:6px">
       <button class="ghost" id="logout">Выйти</button>
     </div>
   </div>
 
-  <footer>nnm-rss · раздачи качаются вашей сессией трекера · статистика — ваша</footer>
+  <footer>nnm-rss · магниты с вашим личным announce · статистика на трекере — ваша</footer>
 </div>
 
 <script>
@@ -170,16 +187,12 @@ async function load() {
   $('auth').style.display = 'none';
   $('app').style.display = '';
   $('feed').value = me.feed_url;
-
-  const st = $('nnm-status');
-  if (me.nnm.set && me.nnm.user)
-    st.innerHTML = `<span class="ok-text">✓ ${me.nnm.user}</span>`;
-  else if (me.nnm.set)
-    st.innerHTML = `<span class="err-text">cookie не проверен</span>`;
-  else
-    st.innerHTML = `<span class="err-text">✗ не настроен</span>`;
+  $('passkey').value = me.passkey || '';
+  if (me.passkey)
+    msg($('passkey-msg'), '✓ ключ сохранён — раздачи считаются вашим', true);
 
   renderSubs();
+  renderHistory();
 }
 
 function renderSubs() {
@@ -211,6 +224,25 @@ function renderSubs() {
     box.appendChild(div);
   }
 }
+
+function renderHistory() {
+  const box = $('history');
+  if (!me.history || !me.history.length) return;
+  box.innerHTML = '';
+  for (const h of me.history) {
+    const div = document.createElement('div');
+    div.className = 'hi';
+    const d = new Date(h.date);
+    const date = ('0' + d.getDate()).slice(-2) + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.' +
+                 String(d.getFullYear()).slice(2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' +
+                 ('0' + d.getMinutes()).slice(-2);
+    div.innerHTML = `<span class="d">${date}</span>
+      <div class="t"><b>${esc(h.title)}</b><small>${esc(isMagnet(h.url) ? 'магнит · в вашей статистике' : 'без passkey — ссылка на тему')}</small></div>`;
+    box.appendChild(div);
+  }
+}
+
+function isMagnet(u) { return u && u.startsWith('magnet:'); }
 
 function esc(s) {
   const d = document.createElement('div');
@@ -252,17 +284,15 @@ $('a-go').onclick = async () => {
   } catch (e) { msg($('a-msg'), e.message); }
 };
 
-// ----- cookie
-$('cookie-save').onclick = async () => {
-  const v = $('cookie').value.trim();
-  if (!v) return msg($('cookie-msg'), 'вставьте значение bb_data');
-  msg($('cookie-msg'), 'проверяю…');
+// ----- passkey
+$('passkey-save').onclick = async () => {
+  const pk = $('passkey').value.trim();
+  if (!pk) return msg($('passkey-msg'), 'вставьте 32 hex-символа');
   try {
-    const r = await api('PUT', '/api/nnm', {cookie: v});
-    $('cookie').value = '';
-    msg($('cookie-msg'), '✓ сессия найдена: ' + r.user, true);
+    await api('PUT', '/api/passkey', {passkey: pk});
+    msg($('passkey-msg'), '✓ сохранено — лента пересоберётся с вашим announce', true);
     await load();
-  } catch (e) { msg($('cookie-msg'), e.message); }
+  } catch (e) { msg($('passkey-msg'), e.message); }
 };
 
 // ----- подписки

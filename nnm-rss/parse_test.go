@@ -60,34 +60,41 @@ func TestCleanTitle(t *testing.T) {
 	check(t, "RE", cleanTitle("Раздел :: RE: Сериал (2026) S01") == "Сериал (2026) S01")
 }
 
-// ---------- страницы тем
+// ---------- страницы тем → info-hash (гостю магнит виден даже при скрытом «Скачать»)
 
-func TestPostSegmentTorrent(t *testing.T) {
+func TestPostSegmentInfoHash(t *testing.T) {
 	body := fixture(t, "nnm_thread.html") // тема с вложением в первом посте
 
 	seg := postSegment(body, 6819070)
 	check(t, "сегмент найден", seg != "")
-	dlID, magnet := findTorrent(seg)
-	check(t, "download id", dlID == 715427, dlID)
-	check(t, "магнит в посте", strings.HasPrefix(magnet, "magnet:?xt=urn:btih:"), magnet)
+	hash := findInfoHash(seg)
+	check(t, "info-hash первого поста", hash != "", hash)
 
-	// соседний пост без вложения не должен отдавать чужую раздачу
+	// соседний пост без раздачи не должен отдавать чужой магнит
 	seg2 := postSegment(body, 6820819)
-	dl2, _ := findTorrent(seg2)
-	check(t, "пост без раздачи", dl2 == 0, dl2)
+	check(t, "пост без раздачи", findInfoHash(seg2) == "")
 }
 
-func TestTopicTitle(t *testing.T) {
-	// гостю «Скачать» скрыт, но <title> виден — резолв без cookie должен пасть мягко
-	body := fixture(t, "nnm_topic.html")
+func TestGuestMagnetOnHiddenDownload(t *testing.T) {
+	body := fixture(t, "nnm_topic.html") // «Скачать» гостю скрыт, магнит — виден
 	m := titleTagRe.FindStringSubmatch(body)
 	check(t, "title есть", m != nil)
 	check(t, "тема", strings.Contains(m[1], "Касса невест"), m[1])
-	dlID, _ := findTorrent(body)
-	check(t, "гостю раздача скрыта", dlID == 0, dlID)
+	hash := findInfoHash(body)
+	check(t, "гость видит магнит", hash == "21F3A8C82E2D2375DD337D06C40D73C7A9D09B60", hash)
 }
 
-// ---------- мелочи
+// ---------- магнит с персональным announce
+
+func TestMagnetLink(t *testing.T) {
+	m := magnetLink("21F3A8C82E2D2375DD337D06C40D73C7A9D09B60", "00680ffd1c4d0286486403595191d662")
+	check(t, "хэш", strings.HasPrefix(m, "magnet:?xt=urn:btih:21F3A8"), m)
+	check(t, "announce с пасскеем", strings.Contains(m, "bt02.nnm-club.cc%3A2710%2F00680ffd1c4d0286486403595191d662%2Fannounce"), m)
+	check(t, "второй трекер", strings.Contains(m, "bt.searchtor.to%2F00680ffd"), m)
+	check(t, "нет чужих трекеров", !strings.Contains(m, "retracker"), m)
+}
+
+// ---------- подписки: URL → вид + id
 
 func TestParseNNMURL(t *testing.T) {
 	cases := []struct {
@@ -107,17 +114,9 @@ func TestParseNNMURL(t *testing.T) {
 	}
 }
 
-func TestSlug(t *testing.T) {
-	s := slug("Касса невест (2025) WEBRip [H.264]/и:прочее*?")
-	check(t, "без слэшей", !strings.ContainsAny(s, "/:*?"), s)
-	check(t, "суффикс", strings.HasSuffix(s, ".torrent"), s)
-	check(t, "пусто → torrent", slug("!!!") == "torrent.torrent" || strings.HasPrefix(slug("!!!"), "torrent"), slug("!!!"))
-}
+// ---------- gid ↔ (kind, id)
 
-func TestNormalizeCookie(t *testing.T) {
-	check(t, "голое значение", normalizeCookie("abc123") == "bb_data=abc123")
-	check(t, "готовое", normalizeCookie("bb_data=abc123") == "bb_data=abc123")
-	check(t, "с префиксом", normalizeCookie("Cookie: bb_data=abc123") == "bb_data=abc123")
-	check(t, "полный header", normalizeCookie("bb_data=abc; x=y") == "bb_data=abc; x=y")
-	check(t, "пусто", normalizeCookie("  ") == "")
+func TestGidParse(t *testing.T) {
+	check(t, "topic", k2kind("topic1888923") == "topic" && k2id("topic1888923") == 1888923)
+	check(t, "post", k2kind("post13108518") == "post" && k2id("post13108518") == 13108518)
 }

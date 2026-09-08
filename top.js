@@ -71,6 +71,87 @@
             { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
 
+        //---------- лист фильтров «как в торрентах»: строки с вложенным выбором
+
+        var QUALITY = { any: 'Любое', '720': '720p и выше', '1080': '1080p и выше (вкл. 4K)', '2160': '4K' }
+
+        var VOICES = {
+            any: 'Любая',
+            'Дубляж': 'Дубляж',
+            'LostFilm': 'LostFilm',
+            'Кубик в Кубе': 'Кубик в Кубе',
+            'HDrezka Studio': 'HDrezka Studio',
+            'Red Head Sound': 'Red Head Sound',
+            'Jaskier': 'Jaskier',
+            'NewStudio': 'NewStudio'
+        }
+
+        function field(name){
+            return String(Lampa.Storage.field(name))
+        }
+
+        function yesNo(name){
+            return field(name) === 'true' ? T('yes') : T('no')
+        }
+
+        // rows: {title, values, key} | {title, toggle} | {title, go} | {title, variants}
+        function filterSheet(rows, apply){
+            Lampa.Select.show({
+                title: T('filters'),
+                items: rows,
+                onBack: function(){
+                    Lampa.Controller.toggle('content')
+                },
+                onSelect: function(item){
+                    Lampa.Select.close()
+
+                    if(item.go) return apply()
+
+                    if(item.variants){
+                        Lampa.Select.show({
+                            title: item.title,
+                            items: item.variants.map(function(v){
+                                return { title: v.title, variant: v }
+                            }),
+                            onBack: function(){
+                                filterSheet(rows, apply)
+                            },
+                            onSelect: function(chosen){
+                                Lampa.Select.close()
+                                pushVariant(chosen.variant)
+                            }
+                        })
+
+                        return
+                    }
+
+                    if(item.toggle){
+                        Lampa.Storage.set(item.toggle, field(item.toggle) === 'true' ? 'false' : 'true')
+
+                        return filterSheet(rows, apply)
+                    }
+
+                    if(item.key){
+                        Lampa.Select.show({
+                            title: item.title.split(':')[0],
+                            items: Object.keys(item.values).map(function(k){
+                                return { title: item.values[k], value: k, selected: k === field(item.key) }
+                            }),
+                            onBack: function(){
+                                filterSheet(rows, apply)
+                            },
+                            onSelect: function(chosen){
+                                Lampa.Select.close()
+                                Lampa.Storage.set(item.key, chosen.value)
+
+                                filterSheet(rows, apply)
+                            }
+                        })
+                    }
+                }
+            })
+        }
+
         function daysAgoISO(days){
             return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
         }
@@ -132,19 +213,15 @@
             }
 
             comp.onRight = function(){
-                Lampa.Select.show({
-                    title: T('variants'),
-                    items: VARIANTS.map(function(v){
-                        return { title: v.title, variant: v }
-                    }),
-                    onSelect: function(item){
-                        Lampa.Select.close()
-                        pushVariant(item.variant)
+                var cur = VARIANTS[lastVariantIndex()]
+
+                filterSheet([
+                    {
+                        title: T('variants') + ': ' + cur.title,
+                        variants: VARIANTS
                     },
-                    onBack: function(){
-                        Lampa.Controller.toggle('content')
-                    }
-                })
+                    { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' }
+                ])
             }
 
             return comp
@@ -312,7 +389,7 @@
         function TrackersScreen(object){
             var comp = new Lampa.InteractionCategory(object)
             var net = new Lampa.Reguest()
-            var sort = object.top_sort || 'seeds'
+            var sort = object.top_sort || field('top_trackers_sort') || 'seeds'
 
             hideWatched(comp)
 
@@ -371,26 +448,30 @@
             }
 
             comp.onRight = function(){
-                Lampa.Select.show({
-                    title: T('trackers_sort'),
-                    items: [
-                        { title: T('sort_seeds'), sort: 'seeds' },
-                        { title: T('sort_top'),   sort: 'top' }
-                    ],
-                    onSelect: function(item){
-                        Lampa.Select.close()
+                var SORTS = { seeds: T('sort_seeds'), top: T('sort_top') }
 
-                        Lampa.Activity.push({
-                            url: '',
-                            title: T('menu_trackers') + ' · ' + item.title,
-                            component: 'top_trackers',
-                            page: 1,
-                            top_sort: item.sort
-                        })
+                filterSheet([
+                    {
+                        title: T('trackers_sort') + ': ' + (SORTS[sort] || SORTS.seeds),
+                        values: SORTS,
+                        key: 'top_trackers_sort'
                     },
-                    onBack: function(){
-                        Lampa.Controller.toggle('content')
-                    }
+                    { title: T('settings_min_quality') + ': ' + (QUALITY[field('top_min_quality')] || QUALITY.any), values: QUALITY, key: 'top_min_quality' },
+                    { title: T('settings_voice_1') + ': ' + (VOICES[field('top_voice_1')] || VOICES.any), values: VOICES, key: 'top_voice_1' },
+                    { title: T('settings_voice_2') + ': ' + (VOICES[field('top_voice_2')] || VOICES.any), values: VOICES, key: 'top_voice_2' },
+                    { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
+                    { title: T('settings_no_cam') + ': ' + yesNo('top_no_cam'), toggle: 'top_no_cam' },
+                    { title: '↻ ' + T('apply'), go: true }
+                ], function(){
+                    Lampa.Storage.set('top_trackers_sort', field('top_trackers_sort') || 'seeds')
+
+                    Lampa.Activity.push({
+                        url: '',
+                        title: T('menu_trackers'),
+                        component: 'top_trackers',
+                        page: 1,
+                        top_sort: field('top_trackers_sort') || 'seeds'
+                    })
                 })
             }
 
@@ -498,6 +579,118 @@
             })
         }
 
+        //---------- пресеты фильтра списка торрентов: сортировка живёт в 'torrents_sort',
+        //---------- выбор фильтра — per-карточно в 'torrents_filter_data' (фолбэк 'torrents_filter')
+
+        function torrentsCardID(){
+            var activity = Lampa.Activity.active()
+            var movie = activity && activity.movie
+
+            if(!movie || !movie.id) return ''
+
+            return movie.id + ':' + (movie.number_of_seasons ? 'tv' : 'movie')
+        }
+
+        function torrentsFilterData(){
+            var all = Lampa.Storage.get('torrents_filter_data', {}) || {}
+
+            return all
+        }
+
+        function openTorrentsPreset(){
+            var presets = Lampa.Storage.get('top_torrents_presets', '[]') || []
+            var cid     = torrentsCardID()
+            var onList  = cid && Lampa.Activity.active().component === 'torrents'
+
+            var items = presets.map(function(p){
+                return { title: p.name, preset: p }
+            })
+
+            if(onList) items.push({ title: T('tp_save') })
+            if(presets.length) items.push({ title: T('my_filter_remove') })
+
+            if(!items.length){
+                Lampa.Noty.show(T('tp_hint'), { time: 7000 })
+
+                return
+            }
+
+            Lampa.Select.show({
+                title: T('tp_title'),
+                items: items,
+                onBack: function(){
+                    Lampa.Controller.toggle('menu')
+                },
+                onSelect: function(item){
+                    Lampa.Select.close()
+
+                    if(item.preset) return applyTorrentsPreset(item.preset, cid, onList)
+
+                    if(item.title === T('tp_save')) return saveTorrentsPreset(presets, cid)
+
+                    if(item.title === T('my_filter_remove')){
+                        Lampa.Select.show({
+                            title: T('my_filter_remove'),
+                            items: presets.map(function(p){
+                                return { title: p.name, preset: p }
+                            }),
+                            onBack: function(){
+                                Lampa.Controller.toggle('content')
+                            },
+                            onSelect: function(del){
+                                Lampa.Select.close()
+
+                                Lampa.Storage.set('top_torrents_presets', presets.filter(function(p){ return p !== del.preset }))
+
+                                Lampa.Noty.show(T('my_filter_removed'))
+                            }
+                        })
+                    }
+                }
+            })
+        }
+
+        function saveTorrentsPreset(presets, cid){
+            Lampa.Input.edit({
+                value: '',
+                placeholder: T('my_filter_name_ph'),
+                keyboard: Lampa.Platform.tv()
+            }, function(name){
+                name = (name || '').trim()
+
+                if(!name) return
+
+                var data = torrentsFilterData()[cid] || Lampa.Storage.get('torrents_filter', '{}')
+
+                presets = presets.filter(function(p){ return p.name !== name })
+                presets.push({ name: name, sort: Lampa.Storage.get('torrents_sort', 'popular'), filter: data })
+
+                Lampa.Storage.set('top_torrents_presets', presets)
+
+                Lampa.Noty.show(T('my_filter_saved'), { style: 'success' })
+            })
+        }
+
+        function applyTorrentsPreset(preset, cid, onList){
+            Lampa.Storage.set('torrents_sort', preset.sort)
+
+            if(onList){
+                // per-карточный фильтр текущего списка + перерисовать экран
+                var all = torrentsFilterData()
+
+                all[cid] = preset.filter
+                Lampa.Storage.set('torrents_filter_data', all)
+
+                Lampa.Activity.replace({})
+            }
+            else{
+                // глобальный дефолт для будущих списков
+                Lampa.Storage.set('torrents_filter', preset.filter)
+
+                Lampa.Noty.show(T('tp_applied'))
+            }
+        }
+
         //---------- регистрация экранов
 
         if(!Lampa.Component.get('top_screen')) Lampa.Component.add('top_screen', TopScreen)
@@ -531,6 +724,12 @@
         })
 
         Lampa.Menu.addButton(ico_filter, T('menu_myfilter'), openMyFilter)
+
+        var ico_magnet = '<svg viewBox="0 0 36 36" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M11 6 v12 a7 7 0 0 0 14 0 v-12"/><line x1="11" y1="6" x2="11" y2="10"/><line x1="25" y1="6" x2="25" y2="10"/><line x1="15" y1="6" x2="15" y2="9"/><line x1="21" y1="6" x2="21" y2="9"/>' +
+            '</svg>'
+
+        Lampa.Menu.addButton(ico_magnet, T('menu_tpreset'), openTorrentsPreset)
 
         //---------- «Топ» вместо главной
 
@@ -668,6 +867,11 @@
             top_menu_top:          { ru: 'Топ',                    en: 'Top' },
             top_menu_trackers:     { ru: 'Топ трекеров',           en: 'Tracker top' },
             top_menu_myfilter:     { ru: 'Мой фильтр',             en: 'My filter' },
+            top_menu_tpreset:      { ru: 'Пресет торрентов',        en: 'Torrents preset' },
+            top_tp_title:          { ru: 'Пресет списка торрентов', en: 'Torrent list preset' },
+            top_tp_save:           { ru: '＋ Сохранить текущий фильтр', en: '+ Save current filter' },
+            top_tp_hint:           { ru: 'Откройте список торрентов, настройте фильтр — и сохраните пресет здесь', en: 'Open torrent list, set filters — then save preset here' },
+            top_tp_applied:        { ru: 'Пресет применён к будущим спискам', en: 'Preset applied to future lists' },
             top_variants:          { ru: 'Что показать',           en: 'What to show' },
             top_trackers_sort:     { ru: 'Сортировка топа',        en: 'Top sorting' },
             top_sort_seeds:        { ru: 'По сидам · сейчас',      en: 'By seeders · now' },
@@ -692,6 +896,10 @@
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
             top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
             top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
+            top_filters:            { ru: 'Фильтры',                en: 'Filters' },
+            top_apply:              { ru: 'Показать',               en: 'Show' },
+            top_yes:                { ru: 'да',                     en: 'yes' },
+            top_no:                 { ru: 'нет',                    en: 'no' },
             top_settings_hide_watched: { ru: 'Скрывать просмотренные', en: 'Hide watched' },
             top_settings_hide_watched_desc: { ru: 'только в «Топе» и «Топе трекеров», по истории Lampa', en: 'only in Top screens, uses Lampa history' },
         })

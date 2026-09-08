@@ -1,19 +1,18 @@
-// nnm-rss — личные RSS-ленты NNMClub по образцу lostfilmfeed.byalex.dev:
-// регистрируешься, вставляешь bb_data-cookie трекера, подписываешься на разделы
-// и конкретные раздачи — торрент-клиент забирает из ленты .torrent, скачанный
-// твоей сессией (пасскей в announce, статистика на трекере твоя).
+// nnm-rss — личные RSS-ленты NNMClub по образцу lostfilmfeed.byalex.dev.
+// Личность юзера — passkey трекера (аналог TrackerId у lostfilm): главная
+// публична, ввёл свой ключ → открылась твоя страница с подписками и историей,
+// лента — /rss/<passkey>. Ни логинов, ни паролей, ни cookie-сессий трекера.
+// Лента отдаёт магниты с персональным announce юзера — клиент аннонсит его
+// ключом, статистика на трекере считается ему.
 //
-// GET  /                     — веб-интерфейс
-// POST /api/register|login|logout
-// GET  /api/me               — состояние для UI
-// PUT  /api/nnm              — сохранить/проверить cookie трекера
+// GET  /                     — публичная главная + «Моя подписка» (веб)
+// POST /api/open             — открыть свою страницу по passkey (кука)
+// GET  /api/me               — мой профиль (подписки, история, лента)
 // POST /api/subs, PATCH/DELETE /api/subs/{id}
-// GET  /rss/{token}          — личная лента (token — секрет юзера)
-// GET  /dl/{token}?topic=|post=|id=&name= — .torrent с cookie юзера
+// GET  /rss/{passkey}        — личная лента
 // GET  /healthz
 //
 // Состояние: JSON в DATA_DIR (том /data), без внешней БД. Кэши в памяти TTL.
-// Публичный сервис: REGISTRATION=off закрывает регистрацию.
 package main
 
 import (
@@ -22,7 +21,6 @@ import (
 	"encoding/xml"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -32,6 +30,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 var rev = "unknown" // проставляется сборкой: -ldflags -X main.rev=…
@@ -40,14 +39,12 @@ var rev = "unknown" // проставляется сборкой: -ldflags -X ma
 var uiHTML []byte
 
 var (
-	ttl           = envInt("TTL", 600)
-	registration  = env("REGISTRATION", "on") != "off"
-	sessionCookie = "sid"
+	ttl = envInt("TTL", 600)
 
 	cacheMu      sync.Mutex
-	rssCache     = map[string]rssCacheEntry{}  // личные ленты подписок: userID|subID → body
-	resolveCache = map[string]resolveEntry{}   // nnm.go: тема/пост → download id
-	feedCache    = map[string]feedCacheEntry{} // готовый XML ленты: userID → байты
+	rssCache     = map[string]rssCacheEntry{}  // родные ленты подписок: kind:id → body
+	resolveCache = map[string]resolveEntry{}   // тема/пост → info-hash
+	feedCache    = map[string]feedCacheEntry{} // готовый XML ленты: passkey → байты
 )
 
 type rssCacheEntry struct {
@@ -56,9 +53,8 @@ type rssCacheEntry struct {
 }
 
 type resolveEntry struct {
-	ts     time.Time
-	dlID   int
-	magnet string
+	ts   time.Time
+	hash string
 }
 
 type feedCacheEntry struct {
@@ -94,20 +90,6 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-// ---------- сессии
-
-func setSessionCookie(w *http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(*w, &http.Cookie{
-		Name:     sessionCookie,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   isHTTPS(r),
-		MaxAge:   30 * 24 * 3600,
-	})
-}
-
 func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
@@ -120,37 +102,24 @@ func baseURL(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// currentUser — юзер по сессионной куке (вызывается под stateMu)
-func currentUser(r *http.Request) *User {
-	c, err := r.Cookie(sessionCookie)
+var passkeyRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+// currentProfile — профиль по куке pk (может быть nil: главная публична)
+func currentProfile(r *http.Request) *Profile {
+	c, err := r.Cookie("pk")
 	if err != nil {
 		return nil
 	}
-	return userBySession(c.Value)
-}
-
-// ---------- brute-force защита логина/регистрации
-
-var (
-	rlMu    sync.Mutex
-	rlTries = map[string]*rlEntry{}
-)
-
-type rlEntry struct {
-	count int
-	reset time.Time
-}
-
-func rateLimitOK(ip string) bool {
-	rlMu.Lock()
-	defer rlMu.Unlock()
-	e := rlTries[ip]
-	if e == nil || time.Now().After(e.reset) {
-		rlTries[ip] = &rlEntry{count: 1, reset: time.Now().Add(15 * time.Minute)}
-		return true
+	pk := strings.ToLower(strings.TrimSpace(c.Value))
+	if !passkeyRe.MatchString(pk) {
+		return nil
 	}
-	e.count++
-	return e.count <= 20
+	for _, p := range state.Profiles {
+		if p.Passkey == pk {
+			return p
+		}
+	}
+	return nil
 }
 
 // ---------- лента
@@ -179,10 +148,9 @@ type feedRSS struct {
 	} `xml:"channel"`
 }
 
-// cachedRSS — родная лента подписки с cookie владельца (раздел может быть
-// закрыт от гостей); кэшируется на TTL
-func cachedRSS(u *User, s *Sub) (string, error) {
-	key := u.ID + "|" + s.ID
+// cachedRSS — родная лента подписки (гость); одна на всех юзеров, кэш на TTL
+func cachedRSS(s *Sub) (string, error) {
+	key := s.Kind + ":" + strconv.Itoa(s.NNMID)
 	cacheMu.Lock()
 	if e, ok := rssCache[key]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
 		cacheMu.Unlock()
@@ -190,7 +158,7 @@ func cachedRSS(u *User, s *Sub) (string, error) {
 	}
 	cacheMu.Unlock()
 
-	body, err := fetchNNM(subRSSURL(s), u.NNMCookie)
+	body, err := fetchNNM(subRSSURL(s), "")
 	if err != nil {
 		return "", err
 	}
@@ -201,13 +169,13 @@ func cachedRSS(u *User, s *Sub) (string, error) {
 }
 
 // buildFeed — XML личной ленты: все включённые подписки, фильтры, новые сверху.
-// Ссылки ведут на наш /dl (лениво резолвит .torrent с cookie юзера); без cookie
-// отдаём исходные ссылки на темы — качать нечем, но лента живая
-func buildFeed(u *User, base string) ([]byte, error) {
+// Ссылки — магниты с персональным announce юзера (статистика на трекере его).
+// Возвращает XML и items для истории «Моя подписка»; из кэша — hist == nil
+func buildFeed(p *Profile) ([]byte, []HistItem, error) {
 	cacheMu.Lock()
-	if e, ok := feedCache[u.ID]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
+	if e, ok := feedCache[p.Passkey]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
 		cacheMu.Unlock()
-		return e.body, nil
+		return e.body, nil, nil
 	}
 	cacheMu.Unlock()
 
@@ -218,7 +186,7 @@ func buildFeed(u *User, base string) ([]byte, error) {
 	}
 	byGUID := map[string]keyItem{}
 
-	for _, s := range u.Subs {
+	for _, s := range p.Subs {
 		if !s.Enabled {
 			continue
 		}
@@ -234,9 +202,9 @@ func buildFeed(u *User, base string) ([]byte, error) {
 			}
 		}
 
-		body, err := cachedRSS(u, s)
+		body, err := cachedRSS(s)
 		if err != nil {
-			log.Printf("feed %s/%s: %v", u.Login, s.Title, err)
+			log.Printf("feed %.8s…/%s: %v", p.Passkey, s.Title, err)
 			continue
 		}
 
@@ -260,15 +228,11 @@ func buildFeed(u *User, base string) ([]byte, error) {
 			// topic → viewtopic.php?t=, post → viewtopic.php?p=
 			param := map[string]string{"topic": "t", "post": "p"}[it.Kind]
 			link := nnmBase + "/forum/viewtopic.php?" + param + "=" + strconv.Itoa(it.ID)
-			if u.NNMCookie != "" {
-				link = base + "/dl/" + u.FeedToken + "?" + it.Kind + "=" + strconv.Itoa(it.ID) +
-					"&name=" + url.QueryEscape(title)
-			}
 
 			byGUID[gid] = keyItem{
 				it: feedItem{
 					Title:   title,
-					Link:    link,
+					Link:    link, // магнит проставим после резолва info-hash
 					Desc:    s.Title,
 					Guid:    feedGuid{Value: "nnm-" + gid, IsPermaLink: false},
 					PubDate: it.Date.UTC().Format(time.RFC1123Z),
@@ -288,25 +252,67 @@ func buildFeed(u *User, base string) ([]byte, error) {
 		items = items[:100]
 	}
 
+	// резолв info-hash'ей параллельно (первая сборка — до сотни страниц)
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	for idx := range items {
+		wg.Add(1)
+		k := &items[idx]
+		go func(k *keyItem) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			hash, err := resolveInfoHash(k2kind(k.gid), k2id(k.gid))
+			if err != nil {
+				log.Printf("resolve %s: %v", k.it.Title, err)
+				return
+			}
+			if hash != "" {
+				k.it.Link = magnetLink(hash, p.Passkey)
+			}
+		}(k)
+	}
+	wg.Wait()
+
 	var f feedRSS
 	f.Version = "2.0"
-	f.Channel.Title = "NNM-Club — " + u.Login
+	f.Channel.Title = "NNM-Club — " + p.Passkey[:8] + "…"
 	f.Channel.Link = nnmBase
-	f.Channel.Description = "nnm-rss: подписки " + u.Login
+	f.Channel.Description = "nnm-rss: подписки " + p.Passkey[:8] + "…"
+	hist := make([]HistItem, 0, len(items))
 	for _, v := range items {
 		f.Channel.Items = append(f.Channel.Items, v.it)
+		hist = append(hist, HistItem{
+			GUID:  v.it.Guid.Value,
+			Title: v.it.Title,
+			URL:   v.it.Link,
+			Date:  v.at,
+		})
 	}
 
 	body, err := xml.Marshal(&f)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := append([]byte(xml.Header), body...)
 
 	cacheMu.Lock()
-	feedCache[u.ID] = feedCacheEntry{ts: time.Now(), body: out}
+	feedCache[p.Passkey] = feedCacheEntry{ts: time.Now(), body: out}
 	cacheMu.Unlock()
-	return out, nil
+	return out, hist, nil
+}
+
+// gid вида "topic123" / "post456" → (kind, id)
+func k2kind(gid string) string {
+	if strings.HasPrefix(gid, "post") {
+		return "post"
+	}
+	return "topic"
+}
+
+func k2id(gid string) int {
+	n, _ := strconv.Atoi(strings.TrimLeftFunc(gid, func(r rune) bool { return !unicode.IsDigit(r) }))
+	return n
 }
 
 // ---------- HTTP
@@ -319,9 +325,9 @@ func main() {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		stateMu.Lock()
-		n := len(state.Users)
+		n := len(state.Profiles)
 		stateMu.Unlock()
-		writeJSON(w, 200, map[string]any{"ok": true, "rev": rev, "users": n})
+		writeJSON(w, 200, map[string]any{"ok": true, "rev": rev, "profiles": n})
 	})
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -329,132 +335,74 @@ func main() {
 		w.Write(uiHTML)
 	})
 
-	// ----- аккаунты сервиса
+	// ----- «вход»: открытие своей страницы по passkey (кука на год)
 
-	mux.HandleFunc("POST /api/register", func(w http.ResponseWriter, r *http.Request) {
-		if !registration {
-			writeErr(w, 403, "регистрация закрыта")
-			return
-		}
-		if !rateLimitOK(r.RemoteAddr) {
-			writeErr(w, 429, "слишком много попыток, подождите")
-			return
-		}
-		var in struct{ Login, Password string }
+	mux.HandleFunc("POST /api/open", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Passkey string }
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeErr(w, 400, "неправильный запрос")
 			return
 		}
-
-		stateMu.Lock()
-		defer stateMu.Unlock()
-		u, err := createUser(in.Login, in.Password)
-		if err != nil {
-			writeErr(w, 400, err.Error())
+		pk := strings.ToLower(strings.TrimSpace(in.Passkey))
+		if !passkeyRe.MatchString(pk) {
+			writeErr(w, 400, "passkey — 32 hex-символа из трекер-URL любого своего торрента (после «:2710/», перед «/announce»)")
 			return
 		}
-		token := openSession(u.ID)
-		saveState()
-		setSessionCookie(&w, r, token)
-		log.Printf("register %s", u.Login)
+
+		stateMu.Lock()
+		created := false
+		if currentProfile(r) == nil || currentProfile(r).Passkey != pk {
+			found := false
+			for _, p := range state.Profiles {
+				if p.Passkey == pk {
+					found = true
+					break
+				}
+			}
+			if !found {
+				profileByPasskey(pk) // первый вход — создаём профиль
+				created = true
+				saveState()
+			}
+		}
+		stateMu.Unlock()
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "pk",
+			Value:    pk,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   isHTTPS(r),
+			MaxAge:   365 * 24 * 3600,
+		})
+		if created {
+			log.Printf("новый профиль %.8s…", pk)
+		}
 		writeJSON(w, 200, map[string]string{"ok": "1"})
 	})
 
-	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
-		if !rateLimitOK(r.RemoteAddr) {
-			writeErr(w, 429, "слишком много попыток, подождите")
-			return
-		}
-		var in struct{ Login, Password string }
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, 400, "неправильный запрос")
-			return
-		}
-
-		stateMu.Lock()
-		defer stateMu.Unlock()
-		u := userByLogin(in.Login)
-		if u == nil || !checkPassword(u, in.Password) {
-			log.Printf("login fail %s", in.Login)
-			writeErr(w, 401, "неверный логин или пароль")
-			return
-		}
-		token := openSession(u.ID)
-		saveState()
-		setSessionCookie(&w, r, token)
-		writeJSON(w, 200, map[string]string{"ok": "1"})
-	})
-
-	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
-		stateMu.Lock()
-		defer stateMu.Unlock()
-		if c, err := r.Cookie(sessionCookie); err == nil {
-			delete(state.Sessions, c.Value)
-			saveState()
-		}
-		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
+	mux.HandleFunc("POST /api/close", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "pk", Value: "", Path: "/", MaxAge: -1})
 		writeJSON(w, 200, map[string]string{"ok": "1"})
 	})
 
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		stateMu.Lock()
-		u := currentUser(r)
-		if u == nil {
+		p := currentProfile(r)
+		if p == nil {
 			stateMu.Unlock()
-			writeErr(w, 401, "не авторизован")
+			writeErr(w, 401, "passkey не указан")
 			return
 		}
 		resp := map[string]any{
-			"login":    u.Login,
-			"feed_url": baseURL(r) + "/rss/" + u.FeedToken,
-			"nnm": map[string]any{
-				"set":  u.NNMCookie != "",
-				"user": u.NNMUser,
-				"uid":  u.NNMUID,
-			},
-			"subs": u.Subs,
+			"passkey":  p.Passkey,
+			"feed_url": baseURL(r) + "/rss/" + p.Passkey,
+			"subs":     p.Subs,
+			"history":  p.History,
 		}
 		stateMu.Unlock()
 		writeJSON(w, 200, resp)
-	})
-
-	// ----- cookie трекера
-
-	mux.HandleFunc("PUT /api/nnm", func(w http.ResponseWriter, r *http.Request) {
-		var in struct{ Cookie string }
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, 400, "неправильный запрос")
-			return
-		}
-
-		cookie := normalizeCookie(in.Cookie)
-		if cookie == "" {
-			writeErr(w, 400, "пусто")
-			return
-		}
-
-		username, uid, err := checkCookie(cookie)
-		if err != nil {
-			writeErr(w, 502, "NNM недоступен: "+err.Error())
-			return
-		}
-		if username == "" {
-			writeErr(w, 400, "cookie не работает: сессия не находится (скопируйте bb_data заново)")
-			return
-		}
-
-		stateMu.Lock()
-		defer stateMu.Unlock()
-		u := currentUser(r)
-		if u == nil {
-			writeErr(w, 401, "не авторизован")
-			return
-		}
-		u.NNMCookie, u.NNMUser, u.NNMUID = cookie, username, uid
-		invalidateFeed(u)
-		saveState()
-		log.Printf("nnm cookie ok: %s → %s (uid %d)", u.Login, username, uid)
-		writeJSON(w, 200, map[string]any{"ok": "1", "user": username, "uid": uid})
 	})
 
 	// ----- подписки
@@ -478,12 +426,12 @@ func main() {
 
 		stateMu.Lock()
 		defer stateMu.Unlock()
-		u := currentUser(r)
-		if u == nil {
-			writeErr(w, 401, "не авторизован")
+		p := currentProfile(r)
+		if p == nil {
+			writeErr(w, 401, "passkey не указан")
 			return
 		}
-		for _, s := range u.Subs {
+		for _, s := range p.Subs {
 			if s.Kind == kind && s.NNMID == id {
 				writeErr(w, 400, "уже в подписках")
 				return
@@ -492,21 +440,21 @@ func main() {
 
 		title := strconv.Itoa(id)
 		if kind == "forum" {
-			if body, err := fetchNNM(subRSSURL(&Sub{Kind: kind, NNMID: id}), u.NNMCookie); err == nil {
+			if body, err := fetchNNM(subRSSURL(&Sub{Kind: kind, NNMID: id}), ""); err == nil {
 				if ch := parseRSSChannel(body); ch != "" {
 					title = ch
 				}
 			}
-		} else if t, err := topicTitle(id, u.NNMCookie); err == nil {
+		} else if t, err := topicTitle(id); err == nil {
 			title = t
 		}
 
 		s := &Sub{ID: randHex(8), Kind: kind, NNMID: id, Title: title,
 			Filter: in.Filter, Exclude: in.Exclude, Enabled: true}
-		u.Subs = append(u.Subs, s)
-		invalidateFeed(u)
+		p.Subs = append(p.Subs, s)
+		invalidateFeed(p.Passkey)
 		saveState()
-		log.Printf("sub+ %s %s:%d (%s)", u.Login, kind, id, title)
+		log.Printf("sub+ %.8s… %s:%d (%s)", p.Passkey, kind, id, title)
 		writeJSON(w, 200, s)
 	})
 
@@ -524,12 +472,12 @@ func main() {
 
 		stateMu.Lock()
 		defer stateMu.Unlock()
-		u := currentUser(r)
-		if u == nil {
-			writeErr(w, 401, "не авторизован")
+		p := currentProfile(r)
+		if p == nil {
+			writeErr(w, 401, "passkey не указан")
 			return
 		}
-		s := u.sub(r.PathValue("id"))
+		s := p.sub(r.PathValue("id"))
 		if s == nil {
 			writeErr(w, 404, "подписка не найдена")
 			return
@@ -543,7 +491,7 @@ func main() {
 		if in.Enabled != nil {
 			s.Enabled = *in.Enabled
 		}
-		invalidateFeed(u)
+		invalidateFeed(p.Passkey)
 		saveState()
 		writeJSON(w, 200, s)
 	})
@@ -551,15 +499,15 @@ func main() {
 	mux.HandleFunc("DELETE /api/subs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		stateMu.Lock()
 		defer stateMu.Unlock()
-		u := currentUser(r)
-		if u == nil {
-			writeErr(w, 401, "не авторизован")
+		p := currentProfile(r)
+		if p == nil {
+			writeErr(w, 401, "passkey не указан")
 			return
 		}
-		for i, s := range u.Subs {
+		for i, s := range p.Subs {
 			if s.ID == r.PathValue("id") {
-				u.Subs = append(u.Subs[:i], u.Subs[i+1:]...)
-				invalidateFeed(u)
+				p.Subs = append(p.Subs[:i], p.Subs[i+1:]...)
+				invalidateFeed(p.Passkey)
 				saveState()
 				writeJSON(w, 200, map[string]string{"ok": "1"})
 				return
@@ -568,83 +516,72 @@ func main() {
 		writeErr(w, 404, "подписка не найдена")
 	})
 
-	// ----- личная лента и скачивание
+	// ----- личная лента: /rss/<passkey>, как rssfeeds/<uuid> у lostfilmfeed
 
-	mux.HandleFunc("GET /rss/{token}", func(w http.ResponseWriter, r *http.Request) {
-		// снапшот юзера под блокировкой, сборка ленты (с сетевыми запросами) — без неё
-		stateMu.Lock()
-		src := userByFeedToken(r.PathValue("token"))
-		var u *User
-		if src != nil {
-			cp := *src
-			cp.Subs = make([]*Sub, len(src.Subs))
-			for i, s := range src.Subs {
-				sc := *s
-				cp.Subs[i] = &sc
-			}
-			u = &cp
-		}
-		stateMu.Unlock()
-
-		if u == nil {
+	mux.HandleFunc("GET /rss/{passkey}", func(w http.ResponseWriter, r *http.Request) {
+		pk := strings.ToLower(r.PathValue("passkey"))
+		if !passkeyRe.MatchString(pk) {
 			http.Error(w, "нет такой ленты", 404)
 			return
 		}
-		body, err := buildFeed(u, baseURL(r))
+
+		// снапшот профиля под блокировкой, сборка ленты (с сетью) — без неё
+		stateMu.Lock()
+		var p *Profile
+		for _, pp := range state.Profiles {
+			if pp.Passkey == pk {
+				cp := *pp
+				cp.Subs = make([]*Sub, len(pp.Subs))
+				for i, s := range pp.Subs {
+					sc := *s
+					cp.Subs[i] = &sc
+				}
+				p = &cp
+				break
+			}
+		}
+		stateMu.Unlock()
+
+		if p == nil {
+			http.Error(w, "нет такой ленты (откройте страницу сервиса и укажите passkey)", 404)
+			return
+		}
+		body, hist, err := buildFeed(p)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+
+		// история «Моя подписка»: новые раздачи ленты (из кэша hist == nil)
+		if hist != nil {
+			stateMu.Lock()
+			if live := profileByPassKeyExisting(pk); live != nil {
+				seen := map[string]bool{}
+				for _, h := range live.History {
+					seen[h.GUID] = true
+				}
+				merged := live.History
+				added := false
+				for _, h := range hist {
+					if !seen[h.GUID] {
+						merged = append(merged, h)
+						added = true
+					}
+				}
+				if added || len(merged) > 50 {
+					sort.Slice(merged, func(i, j int) bool { return merged[i].Date.After(merged[j].Date) })
+					if len(merged) > 50 {
+						merged = merged[:50]
+					}
+					live.History = merged
+					saveState()
+				}
+			}
+			stateMu.Unlock()
+		}
+
 		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 		w.Write(body)
-	})
-
-	mux.HandleFunc("GET /dl/{token}", func(w http.ResponseWriter, r *http.Request) {
-		stateMu.Lock()
-		u := userByFeedToken(r.PathValue("token"))
-		cookie := ""
-		if u != nil {
-			cookie = u.NNMCookie
-		}
-		stateMu.Unlock()
-
-		if u == nil {
-			http.Error(w, "нет такой ленты", 404)
-			return
-		}
-		if cookie == "" {
-			http.Error(w, "сохраните cookie трекера в настройках nnm-rss", 409)
-			return
-		}
-
-		q := r.URL.Query()
-		name := slug(q.Get("name"))
-
-		dlID := atoiDefault(q.Get("id"))
-		if dlID == 0 {
-			kind, id := "topic", atoiDefault(q.Get("topic"))
-			if id == 0 {
-				kind, id = "post", atoiDefault(q.Get("post"))
-			}
-			if id == 0 {
-				http.Error(w, "нужен topic=, post= или id=", 400)
-				return
-			}
-
-			var err error
-			dlID, _, err = resolveTorrent(kind, id, cookie)
-			if err != nil {
-				http.Error(w, "NNM недоступен: "+err.Error(), 502)
-				return
-			}
-			if dlID == 0 {
-				http.Error(w, "в этой теме/посте не нашлось раздачи (или она скрыта)", 404)
-				return
-			}
-		}
-
-		log.Printf("dl %s id=%d", u.Login, dlID)
-		proxyTorrent(w, dlID, cookie, name)
 	})
 
 	srv := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -657,16 +594,26 @@ func main() {
 		os.Exit(0)
 	}()
 
-	log.Printf("nnm-rss %s on :%s, nnm=%s, registration=%t", rev, port, nnmBase, registration)
+	log.Printf("nnm-rss %s on :%s, nnm=%s", rev, port, nnmBase)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
 
+// profileByPassKeyExisting — без создания (под stateMu)
+func profileByPassKeyExisting(pk string) *Profile {
+	for _, p := range state.Profiles {
+		if p.Passkey == pk {
+			return p
+		}
+	}
+	return nil
+}
+
 // invalidateFeed — подписки изменились, ленту пересоберём (под stateMu)
-func invalidateFeed(u *User) {
+func invalidateFeed(passkey string) {
 	cacheMu.Lock()
-	delete(feedCache, u.ID)
+	delete(feedCache, passkey)
 	cacheMu.Unlock()
 }
 
@@ -686,16 +633,4 @@ func ptrStr(p *string) string {
 		return ""
 	}
 	return *p
-}
-
-// normalizeCookie: голое значение → bb_data=значение; строку с "x=y" не трогаем
-func normalizeCookie(s string) string {
-	s = strings.TrimSpace(s)
-	if l := strings.ToLower(s); strings.HasPrefix(l, "cookie:") {
-		s = strings.TrimSpace(s[len("cookie:"):])
-	}
-	if s == "" || strings.Contains(s, "=") {
-		return s
-	}
-	return "bb_data=" + s
 }
