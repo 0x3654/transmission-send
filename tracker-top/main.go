@@ -98,6 +98,32 @@ func qualityRank(q string) int {
 	return 0
 }
 
+// filterVoice — озвучка: выбранный список через запятую («Дубляж» — особое имя).
+// Применяется к релизам ДО дедупа: фильм без подходящей раздачи исчезает целиком,
+// представитель выбирается среди подходящих.
+func filterVoice(items []Item, voices string) []Item {
+	if voices == "" {
+		return items
+	}
+	want := map[string]bool{}
+	for _, v := range strings.Split(voices, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			want[v] = true
+		}
+	}
+	if len(want) == 0 {
+		return items
+	}
+
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if want[it.Voice] || (want["Дубляж"] && it.Dub) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 func filterItems(items []Item, minq, audio string) []Item {
 	out := make([]Item, 0, len(items))
 	for _, it := range items {
@@ -186,8 +212,9 @@ func sortItems(items []Item, sortBy string) {
 	sort.SliceStable(items, func(i, j int) bool { return key(items[i]) > key(items[j]) })
 }
 
-func getTop(src, cat string, pages int, junk bool, sort string) (Payload, bool, error) {
-	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) + "|" + sort
+func getTop(src, cat string, pages int, junk bool, voices, sort string) (Payload, bool, error) {
+	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
+		"|voice:" + voices + "|" + sort
 
 	cacheMu.Lock()
 	if e, ok := cache[key]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
@@ -232,6 +259,7 @@ func getTop(src, cat string, pages int, junk bool, sort string) (Payload, bool, 
 	if junk {
 		items = filterJunk(items)
 	}
+	items = filterVoice(items, voices)
 
 	// мы показываем фильмы для поиска, а не ленту раздач: дубликаты раздач
 	// схлопываются в одну позицию, популярность суммируется
@@ -300,6 +328,7 @@ func main() {
 			}
 		}
 		minq := param(q, "minq", "") // "" | 720 | 1080 | 2160
+		voices := param(q, "voice", "")
 		audio := param(q, "audio", "all")
 		junk := param(q, "junk", "1") != "0"
 		sortBy := param(q, "sort", "seeds")
@@ -308,7 +337,7 @@ func main() {
 			return
 		}
 
-		payload, cached, err := getTop(src, cat, pages, junk, sortBy)
+		payload, cached, err := getTop(src, cat, pages, junk, voices, sortBy)
 		if err != nil {
 			writeJSON(w, 502, map[string]string{"error": err.Error()})
 			return

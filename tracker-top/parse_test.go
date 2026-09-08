@@ -222,3 +222,35 @@ func TestSortItems(t *testing.T) {
 	sortItems(items, "top")
 	check(t, "по завершённости", items[0].Ru == "B" && items[1].Ru == "C" && items[2].Ru == "A")
 }
+
+func TestFilterVoice(t *testing.T) {
+	items := []Item{
+		{Ru: "A", Year: 2026, Voice: "LostFilm", Quality: "1080", Seeders: 100},
+		{Ru: "A", Year: 2026, Voice: "", Dub: true, Quality: "720", Seeders: 50},
+		{Ru: "B", Year: 2026, Voice: "Red Head Sound", Seeders: 90},
+		{Ru: "C", Year: 2026, Voice: "", Dub: false, Seeders: 80},
+	}
+
+	// одна озвучка
+	out := filterVoice(items, "LostFilm")
+	check(t, "voice=LostFilm", len(out) == 1 && out[0].Ru == "A")
+
+	// две сразу (через запятую)
+	out = filterVoice(items, "LostFilm,Red Head Sound")
+	check(t, "две озвучки", len(out) == 2)
+
+	// «Дубляж» ловит раздачи с дубляжом
+	out = filterVoice(items, "Дубляж")
+	check(t, "voice=Дубляж", len(out) == 1 && out[0].Quality == "720")
+
+	// связка: дубляж + студия — обе раздачи A остаются, B/C нет
+	out = filterVoice(items, "Дубляж,LostFilm")
+	check(t, "Дубляж+LostFilm", len(out) == 2 && out[0].Ru == "A" && out[1].Ru == "A")
+
+	// фильтр до дедупа: у A остаются LostFilm и дубляж → дедуп выберет лучшую
+	ded := dedupeFilms(filterVoice(items, "Дубляж,LostFilm"))
+	check(t, "после дедупа одна A", len(ded) == 1 && ded[0].Seeders == 150 && ded[0].Quality == "1080")
+
+	// пустой фильтр — всё на месте
+	check(t, "voice пустой", len(filterVoice(items, "")) == 4)
+}

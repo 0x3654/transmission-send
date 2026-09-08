@@ -19,6 +19,12 @@ const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
 
 const pageSize = 50
 
+// форумы NNMClub без русского перевода — всегда исключаем из видео-топа
+var nnmNoRussian = map[int]bool{
+	780: true, // сериалы без русского перевода (украинская озвучка)
+	781: true, // сериалы без озвученного перевода
+}
+
 // корневые разделы «видео» на NNMClub (идентификаторы форумов)
 var nnmVideoRoots = map[int]bool{
 	216: true, 318: true, 220: true, 224: true, 1311: true, 256: true, 264: true, // кино
@@ -97,7 +103,7 @@ var (
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
 	camRe   = regexp.MustCompile(`(?i)\b(cam|ts|tc|hdts|telesync|telecine|scr)\b|camrip|зрительный зал`)
 	voiceRe = regexp.MustCompile(`(?i)(LostFilm|Кубик в Кубе|NewStudio|Jaskier|Red ?Head Sound|` +
-		`HDrezka(?: Studio)?|Kerob|TVShows|MetalVoice|Amazing Dubbing|Синема УС|Ирония Судьбы|Дубляж)`)
+		`HDrezka(?: Studio)?|Kerob|TVShows|MetalVoice|Amazing Dubbing|Синема УС)`)
 )
 
 // ---------- разбор названия
@@ -255,15 +261,23 @@ func nnmVideoSubtree(body string) map[int]bool {
 		if !strings.Contains(text, "|-") {
 			inVideo = nnmVideoRoots[id]
 		}
-		if inVideo {
+		if inVideo && !nnmNoRussian[id] {
 			ids[id] = true
 		}
 	}
 	return ids
 }
 
+// voiceOf — каноническое имя озвучки (под ним живёт фильтр voice=)
 func voiceOf(title string) string {
-	if m := voiceRe.FindString(title); m != "" && !dubRe.MatchString(strings.ToLower(m)) {
+	if m := voiceRe.FindString(title); m != "" {
+		low := strings.ToLower(m)
+		switch {
+		case strings.Contains(low, "hdrezka"):
+			return "HDrezka Studio"
+		case strings.Contains(low, "red") && strings.Contains(low, "head"):
+			return "Red Head Sound"
+		}
 		return m
 	}
 	if dubRe.MatchString(title) {

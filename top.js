@@ -60,13 +60,32 @@
         var VARIANTS = [
             { title: 'Фильмы · за неделю',        method: 'trending/movie/week' },
             { title: 'Фильмы · за день',          method: 'trending/movie/day' },
+            { title: 'Фильмы · топ 14 дней',      method: 'discover/movie', windowDays: 14, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
+            { title: 'Фильмы · топ 30 дней',      method: 'discover/movie', windowDays: 30, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
             { title: 'Сериалы · за неделю',       method: 'trending/tv/week' },
             { title: 'Сериалы · за день',         method: 'trending/tv/day' },
+            { title: 'Сериалы · топ 30 дней',     method: 'discover/tv',    windowDays: 30, dateKey: 'first_air_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 20 } },
             { title: 'Фильмы · лучшее',           method: 'discover/movie', params: { sort_by: 'vote_average.desc', 'vote_count.gte': 2000 } },
             { title: 'Сериалы · лучшее',          method: 'discover/tv',    params: { sort_by: 'vote_average.desc', 'vote_count.gte': 1500 } },
             { title: 'Фильмы · новинки 2025+',    method: 'discover/movie', params: { sort_by: 'popularity.desc', 'primary_release_date.gte': '2025-01-01', 'vote_count.gte': 100 } },
             { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
+
+        function daysAgoISO(days){
+            return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+        }
+
+        // параметры варианта с учётом окна дат
+        function variantParams(v){
+            var params = {}
+
+            if(v.params){
+                for(var key in v.params) params[key] = v.params[key]
+            }
+            if(v.windowDays && v.dateKey) params[v.dateKey + '.gte'] = daysAgoISO(v.windowDays)
+
+            return params
+        }
 
         function lastVariantIndex(){
             var idx = parseInt(Lampa.Storage.get('top_last_variant', '0'), 10)
@@ -83,7 +102,7 @@
                 component: 'top_screen',
                 page: 1,
                 top_method: v.method,
-                top_params: v.params || null
+                top_params: variantParams(v)
             })
         }
 
@@ -91,6 +110,8 @@
 
         function TopScreen(object){
             var comp = new Lampa.InteractionCategory(object)
+
+            hideWatched(comp)
 
             function load(page, ok, fail){
                 var params = { page: page }
@@ -145,16 +166,61 @@
             var field = function(name){ return String(Lampa.Storage.field(name)) }
             var minq  = field('top_min_quality')
             var junk  = field('top_no_cam') === 'false' ? '0' : '1'
-            var audio = field('top_dub_only') === 'true' ? 'dub' : 'all'
             var pages = sort === 'top' ? 6 : 2 // классика меняется редко — копаем глубже
 
             if(minq === 'any' || minq === 'null' || minq === 'undefined') minq = ''
+
+            // две озвучки на выбор (складываются в один список)
+            var voices = []
+
+            ;['top_voice_1', 'top_voice_2'].forEach(function(name){
+                var v = field(name)
+
+                if(v && v !== 'any' && voices.indexOf(v) === -1) voices.push(v)
+            })
 
             return '/top?cat=video&pages=' + pages +
                 '&sort=' + (sort || 'seeds') +
                 (minq ? '&minq=' + minq : '') +
                 '&junk=' + junk +
-                '&audio=' + audio
+                (voices.length ? '&voice=' + encodeURIComponent(voices.join(',')) : '')
+        }
+
+        //---------- «скрыть просмотренные»: история/просмотрено Lampa, только в наших экранах
+
+        function watchedSet(){
+            var set = {}
+
+            ;['history', 'viewed'].forEach(function(type){
+                var items = []
+
+                try{
+                    items = Lampa.Favorite.get({ type: type }) || []
+                }
+                catch(e){}
+
+                items.forEach(function(card){
+                    if(card && card.id != null) set[(card.name ? 'tv' : 'movie') + ':' + card.id] = true
+                })
+            })
+
+            return set
+        }
+
+        function hideWatched(comp){
+            var origBuild = comp.build.bind(comp)
+
+            comp.build = function(data){
+                if(String(Lampa.Storage.field('top_hide_watched')) === 'true' && data && data.results){
+                    var watched = watchedSet()
+
+                    data.results = data.results.filter(function(el){
+                        return !watched[(el.name ? 'tv' : 'movie') + ':' + el.id]
+                    })
+                }
+
+                return origBuild(data)
+            }
         }
 
         function normTitle(s){
@@ -247,6 +313,8 @@
             var comp = new Lampa.InteractionCategory(object)
             var net = new Lampa.Reguest()
             var sort = object.top_sort || 'seeds'
+
+            hideWatched(comp)
 
             comp.create = function(){
                 var base = serverUrl()
@@ -345,22 +413,88 @@
             }
         })
 
-        function openMyFilter(){
-            var saved = Lampa.Storage.get('top_last_filter', null)
+        function pushFilter(saved){
+            Lampa.Activity.push({
+                url: saved.url,
+                title: saved.name || T('menu_myfilter'),
+                component: 'category_full',
+                source: saved.source,
+                card_type: true,
+                page: 1
+            })
+        }
 
-            if(!saved || !saved.url){
+        function openMyFilter(){
+            var last  = Lampa.Storage.get('top_last_filter', null)
+            var saved = Lampa.Storage.get('top_filters', '[]') || []
+
+            if(!last || !last.url){
                 Lampa.Noty.show(T('my_filter_empty'), { time: 6000 })
 
                 return
             }
 
-            Lampa.Activity.push({
-                url: saved.url,
+            var items = saved.map(function(p){
+                return { title: p.name, preset: p }
+            })
+
+            items.push({ title: T('my_filter_last'), preset: last, separator: items.length > 0 })
+            items.push({ title: T('my_filter_save') })
+            if(saved.length) items.push({ title: T('my_filter_remove') })
+
+            Lampa.Select.show({
                 title: T('menu_myfilter'),
-                component: 'category_full',
-                source: saved.source,
-                card_type: true,
-                page: 1
+                items: items,
+                onBack: function(){
+                    Lampa.Controller.toggle('menu')
+                },
+                onSelect: function(item){
+                    Lampa.Select.close()
+
+                    if(item.preset) return pushFilter(item.preset)
+
+                    if(item.title === T('my_filter_save')) return saveFilterName(last, saved)
+
+                    if(item.title === T('my_filter_remove')) return removeFilter(saved)
+                }
+            })
+        }
+
+        function saveFilterName(last, saved){
+            Lampa.Input.edit({
+                value: '',
+                placeholder: T('my_filter_name_ph'),
+                keyboard: Lampa.Platform.tv()
+            }, function(name){
+                name = (name || '').trim()
+
+                if(!name) return
+
+                saved = saved.filter(function(p){ return p.name !== name })
+                saved.push({ name: name, url: last.url, source: last.source })
+
+                Lampa.Storage.set('top_filters', saved)
+
+                Lampa.Noty.show(T('my_filter_saved'), { style: 'success' })
+            })
+        }
+
+        function removeFilter(saved){
+            Lampa.Select.show({
+                title: T('my_filter_remove'),
+                items: saved.map(function(p){
+                    return { title: p.name, preset: p }
+                }),
+                onBack: function(){
+                    Lampa.Controller.toggle('content')
+                },
+                onSelect: function(item){
+                    Lampa.Select.close()
+
+                    Lampa.Storage.set('top_filters', saved.filter(function(p){ return p !== item.preset }))
+
+                    Lampa.Noty.show(T('my_filter_removed'))
+                }
             })
         }
 
@@ -401,14 +535,16 @@
         //---------- «Топ» вместо главной
 
         if(String(Lampa.Storage.field('top_as_home')) === 'true'){
+            var homeVariant = VARIANTS[lastVariantIndex()]
+
             try{
                 Lampa.Activity.replace({
                     url: '',
-                    title: VARIANTS[lastVariantIndex()].title,
+                    title: homeVariant.title,
                     component: 'top_screen',
                     page: 1,
-                    top_method: VARIANTS[lastVariantIndex()].method,
-                    top_params: VARIANTS[lastVariantIndex()].params || null
+                    top_method: homeVariant.method,
+                    top_params: variantParams(homeVariant)
                 })
             }
             catch(e){}
@@ -450,16 +586,66 @@
             }
         })
 
+        var VOICES = {
+            any: 'Любая',
+            'Дубляж': 'Дубляж',
+            'LostFilm': 'LostFilm',
+            'Кубик в Кубе': 'Кубик в Кубе',
+            'HDrezka Studio': 'HDrezka Studio',
+            'Red Head Sound': 'Red Head Sound',
+            'Jaskier': 'Jaskier',
+            'NewStudio': 'NewStudio'
+        }
+
         Lampa.SettingsApi.addParam({
             component: 'top',
             param: {
                 name: 'top_min_quality',
                 type: 'select',
-                values: { any: 'Любое', '720': '720p+', '1080': '1080p+', '2160': '2160p+' },
+                values: { any: 'Любое', '720': '720p и выше', '1080': '1080p и выше (вкл. 4K)', '2160': '4K' },
                 default: 'any'
             },
             field: {
                 name: T('settings_min_quality')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_voice_1',
+                type: 'select',
+                values: VOICES,
+                default: 'any'
+            },
+            field: {
+                name: T('settings_voice_1')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_voice_2',
+                type: 'select',
+                values: VOICES,
+                default: 'any'
+            },
+            field: {
+                name: T('settings_voice_2')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_hide_watched',
+                type: 'trigger',
+                default: false
+            },
+            field: {
+                name: T('settings_hide_watched'),
+                description: T('settings_hide_watched_desc')
             }
         })
 
@@ -473,18 +659,6 @@
             field: {
                 name: T('settings_no_cam'),
                 description: T('settings_no_cam_desc')
-            }
-        })
-
-        Lampa.SettingsApi.addParam({
-            component: 'top',
-            param: {
-                name: 'top_dub_only',
-                type: 'trigger',
-                default: false
-            },
-            field: {
-                name: T('settings_dub_only')
             }
         })
 
@@ -502,6 +676,12 @@
             top_server_fail:       { ru: 'Сервер топа недоступен', en: 'Top server unreachable' },
             top_trackers_matched:  { ru: 'Совпало с TMDB:',        en: 'Matched on TMDB:' },
             top_my_filter_empty:   { ru: 'Примените фильтр в разделе «Фильтр» — я его запомню', en: 'Apply a filter in the Filter section — I will remember it' },
+            top_my_filter_last:    { ru: 'Последний применённый', en: 'Last applied' },
+            top_my_filter_save:    { ru: '＋ Сохранить последний как пресет', en: '+ Save last as preset' },
+            top_my_filter_remove:  { ru: '🗑 Удалить пресет', en: 'Remove preset' },
+            top_my_filter_saved:   { ru: 'Пресет сохранён', en: 'Preset saved' },
+            top_my_filter_removed: { ru: 'Пресет удалён', en: 'Preset removed' },
+            top_my_filter_name_ph: { ru: 'Название пресета', en: 'Preset name' },
             top_settings_name:     { ru: 'Топ',                    en: 'Top' },
             top_settings_server:   { ru: 'Адрес сервера топа',     en: 'Top server address' },
             top_settings_server_desc: { ru: 'tracker-top: https://… (см. репо); сейчас micro-tracker.koi-uaru.ts.net', en: 'tracker-top: https://… (see repo)' },
@@ -510,7 +690,10 @@
             top_settings_min_quality: { ru: 'Мин. качество (трекеры)', en: 'Min quality (trackers)' },
             top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
-            top_settings_dub_only: { ru: 'Только дубляж (трекеры)', en: 'Dub only (trackers)' }
+            top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
+            top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
+            top_settings_hide_watched: { ru: 'Скрывать просмотренные', en: 'Hide watched' },
+            top_settings_hide_watched_desc: { ru: 'только в «Топе» и «Топе трекеров», по истории Lampa', en: 'only in Top screens, uses Lampa history' },
         })
     }
 
