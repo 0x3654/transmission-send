@@ -351,19 +351,10 @@ func main() {
 
 		stateMu.Lock()
 		created := false
-		if currentProfile(r) == nil || currentProfile(r).Passkey != pk {
-			found := false
-			for _, p := range state.Profiles {
-				if p.Passkey == pk {
-					found = true
-					break
-				}
-			}
-			if !found {
-				profileByPasskey(pk) // первый вход — создаём профиль
-				created = true
-				saveState()
-			}
+		if profileByPassKeyExisting(pk) == nil {
+			profileByPasskey(pk) // первый вход — создаём профиль
+			created = true
+			saveState()
 		}
 		stateMu.Unlock()
 

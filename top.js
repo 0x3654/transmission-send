@@ -430,6 +430,10 @@
                             el.source = 'tmdb'
                             el.top = items[i]
 
+                            // нативный бейдж качества на карточке (card__quality,
+                            // настройка Lampa «Отметки качества»)
+                            el.quality = { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[items[i].quality] || ''
+
                             results.push(el)
                         }
 

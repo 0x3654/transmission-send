@@ -19,7 +19,7 @@
           padding:20px; margin-bottom:18px; }
   .card h2 { font-size:16px; margin:0 0 6px; }
   .card .hint { color:var(--muted); font-size:13px; margin:0 0 12px; }
-  input[type=text], input[type=password] { width:100%; padding:9px 11px; border:1px solid var(--line);
+  input[type=text] { width:100%; padding:9px 11px; border:1px solid var(--line);
           border-radius:7px; font:inherit; background:#fff; }
   input:focus { outline:none; border-color:var(--blue); }
   .row { display:flex; gap:10px; }
@@ -33,10 +33,6 @@
   .msg.ok { color:var(--ok); } .msg.err { color:var(--err); }
   .feedurl { display:flex; gap:10px; align-items:center; }
   .feedurl input { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
-  .tabs { display:flex; margin-bottom:18px; background:var(--card); border:1px solid var(--line);
-          border-radius:10px; overflow:hidden; }
-  .tabs button { border-radius:0; background:transparent; color:var(--muted); flex:1; }
-  .tabs button.on { background:var(--blue); color:#fff; }
   .sub { display:flex; align-items:center; gap:10px; padding:12px 0; border-top:1px solid var(--line); }
   .sub:first-of-type { border-top:0; padding-top:4px; }
   .sub .t { flex:1; min-width:0; }
@@ -64,6 +60,7 @@
   .hi .t { min-width:0; }
   .hi .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
   .hi .t small { color:var(--muted); }
+  .pk { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
 </style>
 </head>
 <body>
@@ -73,33 +70,17 @@
     <p>Личные RSS-ленты NNM-Club для торрент-клиента</p>
   </header>
 
-  <!-- авторизация -->
-  <div id="auth" style="display:none">
-    <div class="tabs">
-      <button id="tab-login" class="on">Вход</button>
-      <button id="tab-reg">Регистрация</button>
-    </div>
+  <!-- публичная главная: открытие своей страницы по passkey -->
+  <div id="open" style="display:none">
     <div class="card">
+      <h2>Ваш passkey</h2>
+      <p class="hint">Passkey — ваш постоянный ключ на NNM-Club (как TrackerId у LostFilm):
+        по нему трекер считает раздачи вашими. Лента отдаёт магниты с вашим личным announce.
+        Настройки хранятся в привязке к ключу: указали — открылась ваша страница.
+        Логин, пароль и cookie не нужны, ключ никогда не истекает.</p>
       <div class="row">
-        <input id="a-login" type="text" placeholder="логин" autocomplete="username">
-        <input id="a-pass" type="password" placeholder="пароль" autocomplete="current-password">
-        <button id="a-go">Войти</button>
-      </div>
-      <div id="a-msg" class="msg"></div>
-    </div>
-  </div>
-
-  <!-- моя подписка -->
-  <div id="app" style="display:none">
-
-    <div class="card">
-      <h2>Passkey (TrackerId)</h2>
-      <p class="hint">Ваш постоянный ключ на NNM-Club — как TrackerId у LostFilm. По нему трекер
-        считает раздачи вашими: лента отдаёт магниты с вашим личным announce. Вставляется один раз,
-        никогда не истекает. Логин, пароль и cookie не нужны.</p>
-      <div class="row">
-        <input id="passkey" type="text" placeholder="00680ffd1c4d0286486403595191d662" spellcheck="false">
-        <button id="passkey-save">Сохранить</button>
+        <input id="pk-input" type="text" placeholder="00680ffd1c4d0286486403595191d662" spellcheck="false">
+        <button id="pk-go">Открыть мою подписку</button>
       </div>
       <details>
         <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px">Где взять passkey</summary>
@@ -110,17 +91,23 @@
           <li>Скопируйте 32 символа между <code>:2710/</code> и <code>/announce</code> — это и есть passkey</li>
         </ol>
       </details>
-      <div id="passkey-msg" class="msg"></div>
+      <div id="pk-msg" class="msg"></div>
     </div>
+  </div>
+
+  <!-- моя подписка -->
+  <div id="app" style="display:none">
 
     <div class="card">
       <h2>Моя лента</h2>
       <p class="hint">Добавьте этот URL в торрент-клиент (transmission-rss, qBittorrent и т.п.).
-        В ленту попадает всё из включённых подписок ниже, прошедшее фильтры.</p>
+        В ленту попадает всё из включённых подписок, прошедшее фильтры.</p>
       <div class="feedurl">
         <input id="feed" type="text" readonly>
         <button id="copy">Копировать</button>
       </div>
+      <p class="hint" style="margin:10px 0 0">Ключ: <span class="pk" id="pk-show"></span> ·
+        <a href="#" id="pk-change" style="color:var(--muted)">это не мой ключ</a></p>
     </div>
 
     <div class="card">
@@ -144,10 +131,6 @@
       <p class="hint">Последние раздачи, прошедшие через вашу ленту (обновляется когда торрент-клиент опрашивает ленту).</p>
       <div id="history" class="hist"><p class="hint">Пока пусто.</p></div>
     </div>
-
-    <div style="text-align:center;margin-top:6px">
-      <button class="ghost" id="logout">Выйти</button>
-    </div>
   </div>
 
   <footer>nnm-rss · магниты с вашим личным announce · статистика на трекере — ваша</footer>
@@ -155,7 +138,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let regMode = false, me = null;
+let me = null;
 
 async function api(method, url, body) {
   const r = await fetch(url, {
@@ -177,20 +160,17 @@ async function load() {
   try {
     me = await api('GET', '/api/me');
   } catch (e) {
-    if (e.message.includes('авторизован')) {
-      $('auth').style.display = '';
+    if (e.message.includes('passkey')) {
+      $('open').style.display = '';
       $('app').style.display = 'none';
       return;
     }
     throw e;
   }
-  $('auth').style.display = 'none';
+  $('open').style.display = 'none';
   $('app').style.display = '';
   $('feed').value = me.feed_url;
-  $('passkey').value = me.passkey || '';
-  if (me.passkey)
-    msg($('passkey-msg'), '✓ ключ сохранён — раздачи считаются вашим', true);
-
+  $('pk-show').textContent = me.passkey.slice(0, 8) + '…';
   renderSubs();
   renderHistory();
 }
@@ -233,16 +213,14 @@ function renderHistory() {
     const div = document.createElement('div');
     div.className = 'hi';
     const d = new Date(h.date);
-    const date = ('0' + d.getDate()).slice(-2) + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.' +
-                 String(d.getFullYear()).slice(2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' +
-                 ('0' + d.getMinutes()).slice(-2);
+    const p2 = n => ('0' + n).slice(-2);
+    const date = p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2) +
+                 ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
     div.innerHTML = `<span class="d">${date}</span>
-      <div class="t"><b>${esc(h.title)}</b><small>${esc(isMagnet(h.url) ? 'магнит · в вашей статистике' : 'без passkey — ссылка на тему')}</small></div>`;
+      <div class="t"><b>${esc(h.title)}</b><small>${esc(h.url && h.url.startsWith('magnet:') ? 'магнит · в вашей статистике' : 'ссылка на тему')}</small></div>`;
     box.appendChild(div);
   }
 }
-
-function isMagnet(u) { return u && u.startsWith('magnet:'); }
 
 function esc(s) {
   const d = document.createElement('div');
@@ -265,34 +243,21 @@ function editSub(s) {
   patch(s, {filter: f.trim(), exclude: x.trim()});
 }
 
-// ----- авторизация
-$('tab-login').onclick = () => switchTab(false);
-$('tab-reg').onclick = () => switchTab(true);
-function switchTab(reg) {
-  regMode = reg;
-  $('tab-login').className = reg ? '' : 'on';
-  $('tab-reg').className = reg ? 'on' : '';
-  $('a-go').textContent = reg ? 'Зарегистрироваться' : 'Войти';
-}
-$('a-go').onclick = async () => {
-  const login = $('a-login').value.trim(), pass = $('a-pass').value;
-  if (!login || !pass) return msg($('a-msg'), 'заполните оба поля');
+// ----- открытие своей страницы
+$('pk-go').onclick = async () => {
+  const pk = $('pk-input').value.trim();
+  if (!pk) return msg($('pk-msg'), 'вставьте 32 hex-символа');
   try {
-    await api('POST', regMode ? '/api/register' : '/api/login', {login, password: pass});
-    $('a-pass').value = '';
+    await api('POST', '/api/open', {passkey: pk});
     await load();
-  } catch (e) { msg($('a-msg'), e.message); }
+  } catch (e) { msg($('pk-msg'), e.message); }
 };
+$('pk-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('pk-go').click(); });
 
-// ----- passkey
-$('passkey-save').onclick = async () => {
-  const pk = $('passkey').value.trim();
-  if (!pk) return msg($('passkey-msg'), 'вставьте 32 hex-символа');
-  try {
-    await api('PUT', '/api/passkey', {passkey: pk});
-    msg($('passkey-msg'), '✓ сохранено — лента пересоберётся с вашим announce', true);
-    await load();
-  } catch (e) { msg($('passkey-msg'), e.message); }
+$('pk-change').onclick = async e => {
+  e.preventDefault();
+  await api('POST', '/api/close');
+  location.reload();
 };
 
 // ----- подписки
@@ -316,11 +281,6 @@ $('copy').onclick = () => {
     $('copy').textContent = '✓';
     setTimeout(() => $('copy').textContent = 'Копировать', 1200);
   });
-};
-
-$('logout').onclick = async () => {
-  await api('POST', '/api/logout');
-  location.reload();
 };
 
 load();

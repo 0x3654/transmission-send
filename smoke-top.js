@@ -139,8 +139,8 @@ state.fields.top_voice_1 = 'Дубляж'
 state.fields.top_voice_2 = 'LostFilm'
 state.fields.top_hide_watched = 'false'
 state.serverJson = { items: [
-    { ru: 'Холоп 3', orig: '', year: 2026, season: false },
-    { ru: 'Сборник софта', orig: '', year: 2021, season: false }
+    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' },
+    { ru: 'Сборник софта', orig: '', year: 2021, season: false, quality: 'sd' }
 ] }
 state.tmdbResponse = { results: [
     { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 }
@@ -155,7 +155,8 @@ comp.create()
     assert.strictEqual(voice, 'Дубляж,LostFilm', 'две озвучки одной строкой')
 }
 assert.strictEqual(comp.built.results.length, 1, 'софт отсеян матчингом')
-console.log('✓ «Топ трекеров»: minq + junk + две озвучки в запросе')
+assert.strictEqual(comp.built.results[0].quality, '4K', 'бейдж качества на карточке')
+console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
 
 // --- 5. озвучки выключены → voice в запросе нет
 state.fields.top_voice_1 = 'any'
