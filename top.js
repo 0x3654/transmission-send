@@ -905,8 +905,8 @@
         //---------- словарь
 
         Lampa.Lang.add({
-            top_menu_top:          { ru: 'Топ',                    en: 'Top' },
-            top_menu_trackers:     { ru: 'Топ трекеров',           en: 'Tracker top' },
+            top_menu_top:          { ru: 'Топ · TMDB',             en: 'Top · TMDB' },
+            top_menu_trackers:     { ru: 'Топ · трекеры',          en: 'Top · trackers' },
             top_menu_myfilter:     { ru: 'Мой фильтр',             en: 'My filter' },
             top_menu_tpreset:      { ru: 'Пресет торрентов',        en: 'Torrents preset' },
             top_tp_title:          { ru: 'Пресет списка торрентов', en: 'Torrent list preset' },
