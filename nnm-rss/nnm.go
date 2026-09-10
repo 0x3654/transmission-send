@@ -327,6 +327,7 @@ func resolveRelease(topicID int) (Release, error) {
 
 	cacheMu.Lock()
 	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: rel}
+	markCacheDirty()
 	cacheMu.Unlock()
 	return rel, nil
 }
@@ -367,6 +368,7 @@ func imdbRating(tt string) (val, votes string) {
 
 	cacheMu.Lock()
 	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: Release{Hash: val, Descr: votes}}
+	markCacheDirty()
 	cacheMu.Unlock()
 	return val, votes
 }
@@ -410,6 +412,7 @@ func malRating(link string) (val, votes string) {
 
 	cacheMu.Lock()
 	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: Release{Hash: val, Descr: votes}}
+	markCacheDirty()
 	cacheMu.Unlock()
 	return val, votes
 }

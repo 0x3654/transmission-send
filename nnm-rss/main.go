@@ -200,6 +200,7 @@ func cachedRSS(s *Sub) (string, error) {
 	}
 	cacheMu.Lock()
 	rssCache[key] = rssCacheEntry{ts: time.Now(), body: body}
+	markCacheDirty()
 	cacheMu.Unlock()
 	return body, nil
 }
@@ -575,6 +576,7 @@ func trackerPage(days, sdstype int) (string, error) {
 	}
 	cacheMu.Lock()
 	rssCache[key] = rssCacheEntry{ts: time.Now(), body: body}
+	markCacheDirty()
 	cacheMu.Unlock()
 	return body, nil
 }
@@ -792,7 +794,9 @@ func k2id(gid string) int {
 func main() {
 	port := env("PORT", "8356")
 	loadState()
+	loadDiskCache()
 	initTorrents()
+	startCacheSaver()
 
 	mux := http.NewServeMux()
 

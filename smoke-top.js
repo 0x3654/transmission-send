@@ -155,7 +155,7 @@ state.findJson = { found: true } // оба найдены…
     const c2 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c2.create()
     assert.strictEqual(c2.built.length, 2, 'обе карточки на месте')
-    assert.ok(calls.urls.some(u => u.includes('/find?query=With+Release') || u.includes('/find?query=With%20Release')), 'запрос /find с оригинальным названием')
+    assert.ok(calls.urls.some(u => u.includes('/find?query=%D0%95%D1%81%D1%82%D1%8C%20%D1%80%D0%B0%D0%B7%D0%B4%D0%B0%D1%87%D0%B0')), 'запрос /find с русским названием')
 }
 state.findJson = { found: false } // …потом ничего не найдено
 {

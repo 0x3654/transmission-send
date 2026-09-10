@@ -234,7 +234,8 @@
             // есть ли у карточки раздача на трекерах под наши фильтры
             function findByTrackers(el, cb){
                 var base  = serverUrl()
-                var query = el.original_title || el.original_name || el.title || el.name || ''
+                // трекеры ищут по русскому названию — локализованный title первым
+                var query = el.title || el.name || el.original_title || el.original_name || ''
 
                 if(!base || !query) return cb(el)
 
