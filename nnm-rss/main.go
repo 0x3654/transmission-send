@@ -466,22 +466,21 @@ func imdbTT(u string) string {
 	return tt
 }
 
-// applyTorrent — link айтема: магнит, пока .torrent не собран (или PUBLIC_URL
-// не задан); как только DHT-резолвер сложил файл — http-ссылка на .torrent +
-// enclosure (nasctl и иные клиенты понимают только http-.torrent, как эталон
-// lostfilmfeed). Пока файла нет — магнет и в enclosure: nasctl-кнопка читает
-// enclosure, без него айтем вообще «недоступен». guid не трогаем: смена link
-// не должна делать item «новым».
+// applyTorrent — магнет основной и мгновенный: есть всегда, ждать нечего,
+// enclosure с ним сразу (в тесте юзера nasctl заполнял поле URL магнетом
+// из enclosure). Если DHT-резолвер уже собрал .torrent — ссылка http
+// (эталон lostfilmfeed так и делал). guid не трогаем: смена link не делает
+// item «новым».
 func applyTorrent(it *feedItem, hash string) {
 	if hash == "" {
 		return
 	}
 	it.Link = magnetLink(hash)
+	it.Enclosure = &feedEnclosure{URL: magnetLink(hash), Length: 1, Type: "application/x-bittorrent"}
 	if selfURL == "" {
 		return
 	}
 	prefetchTorrent(hash)
-	waitForTorrent(hash, 12*time.Second) // новый айтем ждём готовым: nasctl URL-поле заполняет только http-.torrent
 	if torrentReady(hash) {
 		st, err := os.Stat(torrentPath(hash))
 		if err != nil {
@@ -490,9 +489,7 @@ func applyTorrent(it *feedItem, hash string) {
 		u := selfURL + "/t/" + strings.ToLower(hash) + ".torrent"
 		it.Link = u
 		it.Enclosure = &feedEnclosure{URL: u, Length: st.Size(), Type: "application/x-bittorrent"}
-		return
 	}
-	it.Enclosure = &feedEnclosure{URL: magnetLink(hash), Type: "application/x-bittorrent"}
 }
 
 // itemDescr — карточка как на странице раздачи. Постер — отдельной строкой

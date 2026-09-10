@@ -51,6 +51,39 @@
             catch(e){}
         })()
 
+
+        //---------- словарь
+
+        Lampa.Lang.add({
+            top_menu_top:          { ru: 'Топ · TMDB',             en: 'Top · TMDB' },
+            top_menu_trackers:     { ru: 'Топ · трекеры',          en: 'Top · trackers' },
+            top_variants:          { ru: 'Что показать',           en: 'What to show' },
+            top_trackers_sort:     { ru: 'Сортировка топа',        en: 'Top sorting' },
+            top_sort_seeds:        { ru: 'По сидам · сейчас',      en: 'By seeders · now' },
+            top_sort_top:          { ru: 'Классика · за всё время (NNM)', en: 'All-time classics (NNM)' },
+            top_need_server:       { ru: 'Укажите адрес сервера tracker-top в настройках', en: 'Set tracker-top server address in settings' },
+            top_server_fail:       { ru: 'Сервер топа недоступен', en: 'Top server unreachable' },
+            top_trackers_matched:  { ru: 'Совпало с TMDB:',        en: 'Matched on TMDB:' },
+            top_settings_name:     { ru: 'Топ',                    en: 'Top' },
+            top_settings_server:   { ru: 'Адрес сервера топа',     en: 'Top server address' },
+            top_settings_server_desc: { ru: 'tracker-top: https://… (см. репо); сейчас micro-tracker.koi-uaru.ts.net', en: 'tracker-top: https://… (see repo)' },
+            top_settings_as_home:  { ru: '«Топ» вместо главной',   en: 'Top as home screen' },
+            top_settings_as_home_desc: { ru: 'при запуске открывается последний вариант «Топа»', en: 'open last used Top variant on start' },
+            top_settings_min_quality: { ru: 'Мин. качество (трекеры)', en: 'Min quality (trackers)' },
+            top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
+            top_settings_russian_only: { ru: 'Только русские названия', en: 'Russian titles only' },
+            top_settings_russian_only_desc: { ru: 'скрывать раздачи совсем без русских букв в названии', en: 'hide releases with no cyrillic in title' },
+            top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
+            top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
+            top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
+            top_filters:            { ru: 'Фильтры',                en: 'Filters' },
+            top_apply:              { ru: 'Показать',               en: 'Show' },
+            top_yes:                { ru: 'да',                     en: 'yes' },
+            top_no:                 { ru: 'нет',                    en: 'no' },
+            top_settings_hide_watched: { ru: 'Скрывать просмотренные', en: 'Hide watched' },
+            top_settings_hide_watched_desc: { ru: 'только в «Топе» и «Топе трекеров», по истории Lampa', en: 'only in Top screens, uses Lampa history' },
+        })
+
         function T(name){
             return Lampa.Lang.translate('top_' + name)
         }
@@ -505,218 +538,6 @@
             return comp
         }
 
-        //---------- «Мой фильтр»: Lampa не помнит применённый фильтр каталога,
-        //---------- запоминаем на событии activity и открываем одним нажатием
-
-        Lampa.Listener.follow('activity', function(e){
-            if(e.type !== 'create' || e.component !== 'category_full' || !e.object) return
-
-            var url = e.object.url || ''
-
-            if(url.indexOf('discover/') === 0){
-                Lampa.Storage.set('top_last_filter', {
-                    url: url,
-                    source: e.object.source || 'tmdb'
-                })
-            }
-        })
-
-        function pushFilter(saved){
-            Lampa.Activity.push({
-                url: saved.url,
-                title: saved.name || T('menu_myfilter'),
-                component: 'category_full',
-                source: saved.source,
-                card_type: true,
-                page: 1
-            })
-        }
-
-        function openMyFilter(){
-            var last  = Lampa.Storage.get('top_last_filter', null)
-            var saved = Lampa.Storage.get('top_filters', '[]') || []
-
-            if(!last || !last.url){
-                Lampa.Noty.show(T('my_filter_empty'), { time: 6000 })
-
-                return
-            }
-
-            var items = saved.map(function(p){
-                return { title: p.name, preset: p }
-            })
-
-            items.push({ title: T('my_filter_last'), preset: last, separator: items.length > 0 })
-            items.push({ title: T('my_filter_save') })
-            if(saved.length) items.push({ title: T('my_filter_remove') })
-
-            Lampa.Select.show({
-                title: T('menu_myfilter'),
-                items: items,
-                onBack: function(){
-                    Lampa.Controller.toggle('menu')
-                },
-                onSelect: function(item){
-                    Lampa.Select.close()
-
-                    if(item.preset) return pushFilter(item.preset)
-
-                    if(item.title === T('my_filter_save')) return saveFilterName(last, saved)
-
-                    if(item.title === T('my_filter_remove')) return removeFilter(saved)
-                }
-            })
-        }
-
-        function saveFilterName(last, saved){
-            Lampa.Input.edit({
-                value: '',
-                placeholder: T('my_filter_name_ph'),
-                keyboard: Lampa.Platform.tv()
-            }, function(name){
-                name = (name || '').trim()
-
-                if(!name) return
-
-                saved = saved.filter(function(p){ return p.name !== name })
-                saved.push({ name: name, url: last.url, source: last.source })
-
-                Lampa.Storage.set('top_filters', saved)
-
-                Lampa.Noty.show(T('my_filter_saved'), { style: 'success' })
-            })
-        }
-
-        function removeFilter(saved){
-            Lampa.Select.show({
-                title: T('my_filter_remove'),
-                items: saved.map(function(p){
-                    return { title: p.name, preset: p }
-                }),
-                onBack: function(){
-                    Lampa.Controller.toggle('content')
-                },
-                onSelect: function(item){
-                    Lampa.Select.close()
-
-                    Lampa.Storage.set('top_filters', saved.filter(function(p){ return p !== item.preset }))
-
-                    Lampa.Noty.show(T('my_filter_removed'))
-                }
-            })
-        }
-
-        //---------- пресеты фильтра списка торрентов: сортировка живёт в 'torrents_sort',
-        //---------- выбор фильтра — per-карточно в 'torrents_filter_data' (фолбэк 'torrents_filter')
-
-        function torrentsCardID(){
-            var activity = Lampa.Activity.active()
-            var movie = activity && activity.movie
-
-            if(!movie || !movie.id) return ''
-
-            return movie.id + ':' + (movie.number_of_seasons ? 'tv' : 'movie')
-        }
-
-        function torrentsFilterData(){
-            var all = Lampa.Storage.get('torrents_filter_data', {}) || {}
-
-            return all
-        }
-
-        function openTorrentsPreset(){
-            var presets = Lampa.Storage.get('top_torrents_presets', '[]') || []
-            var cid     = torrentsCardID()
-            var onList  = cid && Lampa.Activity.active().component === 'torrents'
-
-            var items = presets.map(function(p){
-                return { title: p.name, preset: p }
-            })
-
-            if(onList) items.push({ title: T('tp_save') })
-            if(presets.length) items.push({ title: T('my_filter_remove') })
-
-            if(!items.length){
-                Lampa.Noty.show(T('tp_hint'), { time: 7000 })
-
-                return
-            }
-
-            Lampa.Select.show({
-                title: T('tp_title'),
-                items: items,
-                onBack: function(){
-                    Lampa.Controller.toggle('menu')
-                },
-                onSelect: function(item){
-                    Lampa.Select.close()
-
-                    if(item.preset) return applyTorrentsPreset(item.preset, cid, onList)
-
-                    if(item.title === T('tp_save')) return saveTorrentsPreset(presets, cid)
-
-                    if(item.title === T('my_filter_remove')){
-                        Lampa.Select.show({
-                            title: T('my_filter_remove'),
-                            items: presets.map(function(p){
-                                return { title: p.name, preset: p }
-                            }),
-                            onBack: function(){
-                                Lampa.Controller.toggle('content')
-                            },
-                            onSelect: function(del){
-                                Lampa.Select.close()
-
-                                Lampa.Storage.set('top_torrents_presets', presets.filter(function(p){ return p !== del.preset }))
-
-                                Lampa.Noty.show(T('my_filter_removed'))
-                            }
-                        })
-                    }
-                }
-            })
-        }
-
-        function saveTorrentsPreset(presets, cid){
-            Lampa.Input.edit({
-                value: '',
-                placeholder: T('my_filter_name_ph'),
-                keyboard: Lampa.Platform.tv()
-            }, function(name){
-                name = (name || '').trim()
-
-                if(!name) return
-
-                var data = torrentsFilterData()[cid] || Lampa.Storage.get('torrents_filter', '{}')
-
-                presets = presets.filter(function(p){ return p.name !== name })
-                presets.push({ name: name, sort: Lampa.Storage.get('torrents_sort', 'popular'), filter: data })
-
-                Lampa.Storage.set('top_torrents_presets', presets)
-
-                Lampa.Noty.show(T('my_filter_saved'), { style: 'success' })
-            })
-        }
-
-        function applyTorrentsPreset(preset, cid, onList){
-            Lampa.Storage.set('torrents_sort', preset.sort)
-
-            if(onList){
-                // per-карточный фильтр текущего списка + перерисовать экран
-                var all = torrentsFilterData()
-
-                all[cid] = preset.filter
-                Lampa.Storage.set('torrents_filter_data', all)
-
-                Lampa.Activity.replace({})
-            }
-            else{
-                // глобальный дефолт для будущих списков
-                Lampa.Storage.set('torrents_filter', preset.filter)
-
-                Lampa.Noty.show(T('tp_applied'))
-            }
-        }
 
         //---------- регистрация экранов
 
@@ -733,10 +554,6 @@
             '<path d="M8 8 v10 a10 10 0 0 0 20 0 v-10"/><line x1="8" y1="8" x2="8" y2="13"/><line x1="28" y1="8" x2="28" y2="13"/><line x1="13" y1="8" x2="13" y2="11"/><line x1="23" y1="8" x2="23" y2="11"/>' +
             '</svg>'
 
-        var ico_filter = '<svg viewBox="0 0 36 36" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M6 9 h24 l-9 11 v9 l-6 -3 v-6 z"/>' +
-            '</svg>'
-
         Lampa.Menu.addButton(ico_top, T('menu_top'), function(){
             pushVariant(VARIANTS[lastVariantIndex()])
         })
@@ -750,13 +567,7 @@
             })
         })
 
-        Lampa.Menu.addButton(ico_filter, T('menu_myfilter'), openMyFilter)
 
-        var ico_magnet = '<svg viewBox="0 0 36 36" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M11 6 v12 a7 7 0 0 0 14 0 v-12"/><line x1="11" y1="6" x2="11" y2="10"/><line x1="25" y1="6" x2="25" y2="10"/><line x1="15" y1="6" x2="15" y2="9"/><line x1="21" y1="6" x2="21" y2="9"/>' +
-            '</svg>'
-
-        Lampa.Menu.addButton(ico_magnet, T('menu_tpreset'), openTorrentsPreset)
 
         //---------- «Топ» вместо главной
 
@@ -902,50 +713,6 @@
             }
         })
 
-        //---------- словарь
-
-        Lampa.Lang.add({
-            top_menu_top:          { ru: 'Топ · TMDB',             en: 'Top · TMDB' },
-            top_menu_trackers:     { ru: 'Топ · трекеры',          en: 'Top · trackers' },
-            top_menu_myfilter:     { ru: 'Мой фильтр',             en: 'My filter' },
-            top_menu_tpreset:      { ru: 'Пресет торрентов',        en: 'Torrents preset' },
-            top_tp_title:          { ru: 'Пресет списка торрентов', en: 'Torrent list preset' },
-            top_tp_save:           { ru: '＋ Сохранить текущий фильтр', en: '+ Save current filter' },
-            top_tp_hint:           { ru: 'Откройте список торрентов, настройте фильтр — и сохраните пресет здесь', en: 'Open torrent list, set filters — then save preset here' },
-            top_tp_applied:        { ru: 'Пресет применён к будущим спискам', en: 'Preset applied to future lists' },
-            top_variants:          { ru: 'Что показать',           en: 'What to show' },
-            top_trackers_sort:     { ru: 'Сортировка топа',        en: 'Top sorting' },
-            top_sort_seeds:        { ru: 'По сидам · сейчас',      en: 'By seeders · now' },
-            top_sort_top:          { ru: 'Классика · за всё время (NNM)', en: 'All-time classics (NNM)' },
-            top_need_server:       { ru: 'Укажите адрес сервера tracker-top в настройках', en: 'Set tracker-top server address in settings' },
-            top_server_fail:       { ru: 'Сервер топа недоступен', en: 'Top server unreachable' },
-            top_trackers_matched:  { ru: 'Совпало с TMDB:',        en: 'Matched on TMDB:' },
-            top_my_filter_empty:   { ru: 'Примените фильтр в разделе «Фильтр» — я его запомню', en: 'Apply a filter in the Filter section — I will remember it' },
-            top_my_filter_last:    { ru: 'Последний применённый', en: 'Last applied' },
-            top_my_filter_save:    { ru: '＋ Сохранить последний как пресет', en: '+ Save last as preset' },
-            top_my_filter_remove:  { ru: '🗑 Удалить пресет', en: 'Remove preset' },
-            top_my_filter_saved:   { ru: 'Пресет сохранён', en: 'Preset saved' },
-            top_my_filter_removed: { ru: 'Пресет удалён', en: 'Preset removed' },
-            top_my_filter_name_ph: { ru: 'Название пресета', en: 'Preset name' },
-            top_settings_name:     { ru: 'Топ',                    en: 'Top' },
-            top_settings_server:   { ru: 'Адрес сервера топа',     en: 'Top server address' },
-            top_settings_server_desc: { ru: 'tracker-top: https://… (см. репо); сейчас micro-tracker.koi-uaru.ts.net', en: 'tracker-top: https://… (see repo)' },
-            top_settings_as_home:  { ru: '«Топ» вместо главной',   en: 'Top as home screen' },
-            top_settings_as_home_desc: { ru: 'при запуске открывается последний вариант «Топа»', en: 'open last used Top variant on start' },
-            top_settings_min_quality: { ru: 'Мин. качество (трекеры)', en: 'Min quality (trackers)' },
-            top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
-            top_settings_russian_only: { ru: 'Только русские названия', en: 'Russian titles only' },
-            top_settings_russian_only_desc: { ru: 'скрывать раздачи совсем без русских букв в названии', en: 'hide releases with no cyrillic in title' },
-            top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
-            top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
-            top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
-            top_filters:            { ru: 'Фильтры',                en: 'Filters' },
-            top_apply:              { ru: 'Показать',               en: 'Show' },
-            top_yes:                { ru: 'да',                     en: 'yes' },
-            top_no:                 { ru: 'нет',                    en: 'no' },
-            top_settings_hide_watched: { ru: 'Скрывать просмотренные', en: 'Hide watched' },
-            top_settings_hide_watched_desc: { ru: 'только в «Топе» и «Топе трекеров», по истории Lampa', en: 'only in Top screens, uses Lampa history' },
-        })
     }
 
     if(window.appready) init()

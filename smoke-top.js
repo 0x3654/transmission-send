@@ -95,7 +95,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 
 // --- 1. регистрация + формат параметров (input обязан иметь values:'string')
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
-assert.strictEqual(calls.menu.length, 4)
+assert.strictEqual(calls.menu.length, 2)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
     ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
@@ -103,7 +103,7 @@ assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан �
     const sel = calls.params[2].param.values
     assert.strictEqual(Object.keys(sel).sort().join(','), '1080,2160,720,any', 'select — объект ключ→название')
 }
-console.log('✓ регистрация: 2 экрана, 3 пункта меню, 6 параметров (input с маркером, select объект)')
+console.log('✓ регистрация: 2 экрана, 2 пункта меню (Топ · TMDB, Топ · трекеры), параметры с маркером input')
 
 // --- 2. варианты с окном дат: 14 дней подставляет primary_release_date.gte
 {
@@ -190,46 +190,6 @@ comp.create()
 assert.deepStrictEqual(comp.built.results.map(r => r.id), [300], 'history/viewed/look/thrown и tv-movie кейс вырезаны')
 console.log('✓ «скрыть просмотренные»: 4 источника + имя-ключ ловит tv/movie')
 
-// --- 7. «Мой фильтр»: запоминание + пресеты
-state.storage.top_last_filter = null
-fire('activity', { type: 'create', component: 'category_full', object: { url: 'discover/movie?with_genres=35', source: 'tmdb' } })
-assert.strictEqual(state.storage.top_last_filter.url, 'discover/movie?with_genres=35')
-fire('activity', { type: 'create', component: 'category_full', object: { url: 'movie/popular' } })
-assert.strictEqual(state.storage.top_last_filter.url, 'discover/movie?with_genres=35', 'не-discover не перезаписывает')
-
-calls.menu[2].cb() // пресетов нет, но last есть
-let sel = calls.selects[calls.selects.length - 1]
-const lastItem = sel.items.find(i => i.preset && i.preset.url === 'discover/movie?with_genres=35')
-assert.ok(lastItem, 'в списке есть «последний»')
-sel.onSelect(lastItem)
-assert.strictEqual(calls.push[calls.push.length - 1].url, 'discover/movie?with_genres=35')
-console.log('✓ «Мой фильтр»: запоминает и открывает последний')
-
-// сохранить пресет
-calls.menu[2].cb()
-sel = calls.selects[calls.selects.length - 1]
-sel.onSelect(sel.items.find(i => i.title === 'top_my_filter_save'))
-assert.strictEqual(calls.inputs.length, 1, 'открыт ввод имени')
-calls.inputs[0].cb('Комедии')
-assert.strictEqual(state.storage.top_filters[0].name, 'Комедии')
-assert.ok(calls.noty.some(n => n.text === 'top_my_filter_saved'))
-console.log('✓ «Мой фильтр»: пресет сохраняется с именем')
-
-// удалить пресет
-calls.menu[2].cb()
-sel = calls.selects[calls.selects.length - 1]
-sel.onSelect(sel.items.find(i => i.title === 'top_my_filter_remove'))
-const rmSel = calls.selects[calls.selects.length - 1]
-rmSel.onSelect(rmSel.items[0])
-assert.deepStrictEqual(state.storage.top_filters, [])
-console.log('✓ «Мой фильтр»: пресет удаляется')
-
-// пустое состояние
-delete state.storage.top_last_filter
-calls.menu[2].cb()
-assert.ok(calls.noty.some(n => n.text === 'top_my_filter_empty'))
-console.log('✓ «Мой фильтр»: подсказка при пустом')
-
 // --- 8. «Топ» вместо главной (отдельный контекст с включённым тумблером)
 {
     const calls2 = { replace: [] }
@@ -264,61 +224,5 @@ comp.create()
 assert.ok(calls.noty.some(n => n.text === 'top_need_server'))
 assert.strictEqual(calls.settings[0], 'top')
 console.log('✓ без адреса сервера: подсказка и экран настроек')
-
-// --- 10. пресет фильтра списка торрентов
-// пустое состояние (экран торрентов не открыт, пресетов нет)
-calls.menu[3].cb()
-assert.ok(calls.noty.some(n => n.text === 'top_tp_hint'), 'подсказка при пустом')
-
-// «открыт» список торрентов: activity + карточка + выбранный фильтр
-state.storage.torrents_sort = 'Seeders'
-state.storage.torrents_filter_data = { '777:movie': { voice: 1, quality: 2, tracker: ['NNMClub'] } }
-const activeActivity = { component: 'torrents', movie: { id: 777 } }
-sandbox.Lampa.Activity.active = () => activeActivity
-
-calls.menu[3].cb()
-{
-    const sh = calls.selects[calls.selects.length - 1]
-    sh.onSelect(sh.items.find(i => i.title === 'top_tp_save'))
-    assert.strictEqual(calls.inputs.length, 2, 'открыт ввод имени') // первый — из теста «Мой фильтр»
-    calls.inputs[calls.inputs.length - 1].cb('Мой сетап')
-    const p = state.storage.top_torrents_presets[0]
-    assert.strictEqual(p.name, 'Мой сетап')
-    assert.strictEqual(p.sort, 'Seeders', 'сортировка снята')
-    assert.deepStrictEqual(p.filter, { voice: 1, quality: 2, tracker: ['NNMClub'] }, 'фильтр снят с карточки')
-}
-
-// применить на открытом списке → per-card данные + replace
-state.storage.torrents_sort = 'popular'
-calls.menu[3].cb()
-{
-    const sh = calls.selects[calls.selects.length - 1]
-    sh.onSelect(sh.items.find(i => i.preset))
-    assert.strictEqual(state.storage.torrents_sort, 'Seeders', 'сортировка восстановлена')
-    assert.deepStrictEqual(state.storage.torrents_filter_data['777:movie'],
-        { voice: 1, quality: 2, tracker: ['NNMClub'] }, 'фильтр записан в карточку')
-    assert.strictEqual(calls.replace.length, 1, 'экран перерисован replace')
-}
-
-// применить вне списка → глобальный дефолт
-activeActivity.component = 'full'
-calls.menu[3].cb()
-{
-    const sh = calls.selects[calls.selects.length - 1]
-    sh.onSelect(sh.items.find(i => i.preset))
-    assert.deepStrictEqual(state.storage.torrents_filter,
-        { voice: 1, quality: 2, tracker: ['NNMClub'] }, 'глобальный фолбэк записан')
-}
-
-// удалить пресет
-calls.menu[3].cb()
-{
-    const sh = calls.selects[calls.selects.length - 1]
-    sh.onSelect(sh.items.find(i => i.title === 'top_my_filter_remove'))
-    const rm = calls.selects[calls.selects.length - 1]
-    rm.onSelect(rm.items[0])
-    assert.deepStrictEqual(state.storage.top_torrents_presets, [])
-}
-console.log('✓ пресет торрентов: снять с открытого списка / применить на нём и глобально / удалить')
 
 console.log('\nВСЕ СМОУК-ТЕСТЫ ПРОЙДЕНЫ')

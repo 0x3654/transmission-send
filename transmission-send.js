@@ -40,6 +40,18 @@
             catch(e){}
         })()
 
+
+        //---------- словарь
+
+        Lampa.Lang.add({
+            transmission_send_menu_copy:        { ru: 'Скопировать магнет', en: 'Copy magnet' },
+            transmission_send_menu_open:        { ru: 'Открыть магнет',     en: 'Open magnet' },
+
+            transmission_send_copied:           { ru: 'Магнет скопирован',  en: 'Magnet copied' },
+            transmission_send_copy_fail:        { ru: 'Не удалось скопировать', en: 'Copy failed' },
+            transmission_send_magnet_open:      { ru: 'Открываю магнет…',   en: 'Opening magnet…' }
+        })
+
         function T(name){
             return Lampa.Lang.translate('transmission_send_' + name)
         }
@@ -121,16 +133,6 @@
             pushMagnetItems(e.menu, prev, 'magnet:?xt=urn:btih:' + e.element.torrent_hash)
         })
 
-        //---------- словарь
-
-        Lampa.Lang.add({
-            transmission_send_menu_copy:        { ru: 'Скопировать магнет', en: 'Copy magnet' },
-            transmission_send_menu_open:        { ru: 'Открыть магнет',     en: 'Open magnet' },
-
-            transmission_send_copied:           { ru: 'Магнет скопирован',  en: 'Magnet copied' },
-            transmission_send_copy_fail:        { ru: 'Не удалось скопировать', en: 'Copy failed' },
-            transmission_send_magnet_open:      { ru: 'Открываю магнет…',   en: 'Opening magnet…' }
-        })
     }
 
     if(window.appready) init()
