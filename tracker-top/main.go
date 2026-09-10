@@ -85,6 +85,30 @@ func param(q map[string][]string, k, def string) string {
 	return def
 }
 
+// hasCyrillic — есть ли в строке русские буквы
+func hasCyrillic(s string) bool {
+	for _, r := range s {
+		if (r >= 'А' && r <= 'я') || r == 'Ё' || r == 'ё' {
+			return true
+		}
+	}
+	return false
+}
+
+// filterRussian: ru=1 — прятать раздачи совсем без русских букв в названии
+func filterRussian(items []Item, ru string) []Item {
+	if ru != "1" {
+		return items
+	}
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if hasCyrillic(it.Ru) || hasCyrillic(it.Orig) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // qualityRank: sd=0 < 720 < 1080 < 2160
 func qualityRank(q string) int {
 	switch q {
@@ -214,9 +238,9 @@ func sortItems(items []Item, sortBy string) {
 	sort.SliceStable(items, func(i, j int) bool { return key(items[i]) > key(items[j]) })
 }
 
-func getTop(src, cat string, pages int, junk bool, voices, sort string) (Payload, bool, error) {
+func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Payload, bool, error) {
 	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
-		"|voice:" + voices + "|" + sort
+		"|voice:" + voices + "|ru:" + ru + "|" + sort
 
 	cacheMu.Lock()
 	if e, ok := cache[key]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
@@ -262,6 +286,7 @@ func getTop(src, cat string, pages int, junk bool, voices, sort string) (Payload
 		items = filterJunk(items)
 	}
 	items = filterVoice(items, voices)
+	items = filterRussian(items, ru)
 
 	// мы показываем фильмы для поиска, а не ленту раздач: дубликаты раздач
 	// схлопываются в одну позицию, популярность суммируется
@@ -331,6 +356,7 @@ func main() {
 		}
 		minq := param(q, "minq", "") // "" | 720 | 1080 | 2160
 		voices := param(q, "voice", "")
+		ru := param(q, "ru", "1") // 1 — скрывать названия без русских букв
 		audio := param(q, "audio", "all")
 		junk := param(q, "junk", "1") != "0"
 		sortBy := param(q, "sort", "seeds")
@@ -339,7 +365,7 @@ func main() {
 			return
 		}
 
-		payload, cached, err := getTop(src, cat, pages, junk, voices, sortBy)
+		payload, cached, err := getTop(src, cat, pages, junk, voices, ru, sortBy)
 		if err != nil {
 			writeJSON(w, 502, map[string]string{"error": err.Error()})
 			return

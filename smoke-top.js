@@ -97,7 +97,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
 assert.strictEqual(calls.menu.length, 4)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
-    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_no_cam'])
+    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
 {
     const sel = calls.params[2].param.values
@@ -152,6 +152,7 @@ comp.create()
 {
     const url = calls.urls[calls.urls.length - 1]
     assert.ok(url.includes('minq=1080') && url.includes('junk=1'), 'качество и CAM-фильтр')
+    assert.ok(url.includes('ru=1'), 'русский фильтр по умолчанию')
     const voice = decodeURIComponent((url.match(/voice=([^&]*)/) || [])[1] || '')
     assert.strictEqual(voice, 'Дубляж,LostFilm', 'две озвучки одной строкой')
 }

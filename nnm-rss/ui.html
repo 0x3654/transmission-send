@@ -3,48 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>nnm-rss — личные RSS-ленты NNM-Club</title>
+<title>NNM-Club RSS — ваш персональный RSS для torrent-клиента</title>
 <style>
-  :root { --blue:#2c6e9b; --bg:#f2f4f7; --card:#fff; --text:#222; --muted:#7a828c;
-          --line:#dde2e8; --ok:#2e8b57; --err:#c0392b; }
+  :root {
+    --accent:#c2410c; --accent-txt:#fff;      /* светлая: тёмно-оранжевый */
+    --bg:#f2f4f7; --card:#fff; --text:#222; --muted:#7a828c;
+    --line:#dde2e8; --ok:#2e8b57; --err:#c0392b;
+    --ghost:#eef1f5; --field:#fff; --sel:#ffe9dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      /* monokai ristretto */
+      --accent:#c2623d; --accent-txt:#2c2525;
+      --bg:#221f20; --card:#2c2828; --text:#f0e6c8; --muted:#8b8481;
+      --line:#413b3b; --ok:#ffd479; --err:#f85e50;
+      --ghost:#3a3435; --field:#353030; --sel:#3d3636;
+    }
+  }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:var(--bg); color:var(--text); }
-  .wrap { max-width:680px; margin:0 auto; padding:28px 16px 60px; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
   header { text-align:center; margin-bottom:26px; }
-  header h1 { font-size:26px; margin:0; }
-  header h1 span { color:var(--blue); }
+  header h1 { font-size:26px; margin:0; font-weight:600; }
+  header h1 span { color:var(--accent); }
   header p { color:var(--muted); margin:6px 0 0; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
           padding:20px; margin-bottom:18px; }
   .card h2 { font-size:16px; margin:0 0 6px; }
   .card .hint { color:var(--muted); font-size:13px; margin:0 0 12px; }
-  input[type=text] { width:100%; padding:9px 11px; border:1px solid var(--line);
-          border-radius:7px; font:inherit; background:#fff; }
-  input:focus { outline:none; border-color:var(--blue); }
+  input[type=text], input[type=password], select { padding:9px 11px; border:1px solid var(--line);
+          border-radius:7px; font:inherit; background:var(--field); color:var(--text); }
+  input[type=text], input[type=password] { width:100%; }
+  input:focus, select:focus { outline:none; border-color:var(--accent); }
+  input::placeholder { color:var(--muted); }
   .row { display:flex; gap:10px; }
   .row > * { flex:1; }
-  button { padding:9px 16px; border:0; border-radius:7px; background:var(--blue); color:#fff;
-           font:inherit; cursor:pointer; white-space:nowrap; }
-  button:hover { opacity:.9; }
-  button.ghost { background:#eef1f5; color:var(--text); }
+  button { padding:9px 16px; border:0; border-radius:7px; background:var(--accent);
+           color:var(--accent-txt); font:inherit; cursor:pointer; white-space:nowrap; }
+  button:hover { opacity:.88; }
+  button.ghost { background:var(--ghost); color:var(--text); }
   button.mini { padding:4px 9px; font-size:13px; }
   .msg { margin-top:10px; font-size:14px; min-height:20px; }
   .msg.ok { color:var(--ok); } .msg.err { color:var(--err); }
-  .feedurl { display:flex; gap:10px; align-items:center; }
-  .feedurl input { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
-  .sub { display:flex; align-items:center; gap:10px; padding:12px 0; border-top:1px solid var(--line); }
-  .sub:first-of-type { border-top:0; padding-top:4px; }
+
+  /* ссылка ленты — код-блок как в markdown, на всю ширину, копирование внутри */
+  .feedrow { display:flex; margin-bottom:6px; }
+  .codebox { flex:1; min-width:0; position:relative; background:#212630; color:#c9d3de;
+             border-radius:8px; padding:10px 40px 10px 12px; font-family:ui-monospace,Menlo,monospace;
+             font-size:12.5px; overflow-x:auto; white-space:nowrap; cursor:text;
+             border:1px solid rgba(127,127,127,.18); }
+  .codebox .url { user-select:all; }
+  .copyicon { position:absolute; right:5px; top:50%; transform:translateY(-50%);
+              width:28px; height:28px; border:0; border-radius:6px; background:transparent;
+              color:#8b96a5; font-size:14px; line-height:1; cursor:pointer; padding:0; }
+  .copyicon:hover { background:rgba(255,255,255,.09); color:#fff; }
+  .copyicon.ok { color:#7fd0a3; }
+
+  /* «История» — ссылкой, строкой под блоком кода, прижата вправо */
+  .histrow { display:flex; justify-content:flex-end; margin:0 0 4px; }
+  .histlink { font-size:13px; color:var(--muted); text-decoration:none; cursor:pointer; }
+  .histlink:hover { color:var(--accent); }
+
+  .sub { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
+  .subgr > .sub:first-of-type { border-top:0; padding-top:4px; }
+  .subgr h3 { font-size:13px; color:var(--muted); font-weight:500; margin:14px 0 2px; }
+  .subgr h3:first-child { margin-top:4px; }
+  .sub img { width:34px; height:50px; object-fit:cover; border-radius:5px; background:var(--ghost); flex:none; }
   .sub .t { flex:1; min-width:0; }
   .sub .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sub .t small { color:var(--muted); display:block; overflow:hidden; text-overflow:ellipsis;
-                  white-space:nowrap; }
-  .badge { font-size:11px; background:#eef1f5; border-radius:5px; padding:2px 7px; color:var(--muted); }
+  .sub .t small { color:var(--muted); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { font-size:11px; background:var(--ghost); border-radius:5px; padding:2px 7px; color:var(--muted); }
+  .badge.auto { background:var(--sel); color:var(--accent); }
   .sw { position:relative; width:38px; height:22px; flex:none; cursor:pointer; }
   .sw input { opacity:0; width:0; height:0; }
-  .sw i { position:absolute; inset:0; background:#cdd4dc; border-radius:22px; transition:.15s; }
+  .sw i { position:absolute; inset:0; background:var(--line); border-radius:22px; transition:.15s; }
   .sw i:before { content:""; position:absolute; width:16px; height:16px; border-radius:50%;
-                 background:#fff; top:3px; left:3px; transition:.15s; }
+                 background:var(--card); top:3px; left:3px; transition:.15s; }
   .sw input:checked + i { background:var(--ok); }
   .sw input:checked + i:before { transform:translateX(16px); }
   .del { background:transparent; color:var(--muted); font-size:16px; padding:4px 8px; }
@@ -52,45 +87,75 @@
   footer { text-align:center; color:var(--muted); font-size:12px; }
   ol { margin:8px 0 0; padding-left:20px; color:var(--muted); font-size:13px; }
   ol li { margin-bottom:4px; }
-  code { background:#eef1f5; border-radius:4px; padding:1px 5px; font-size:12.5px; }
-  .hist { max-height:340px; overflow-y:auto; }
+  code { background:var(--ghost); border-radius:4px; padding:1px 5px; font-size:12.5px; }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; user-select:none; }
+  details[open] summary { color:var(--text); margin-bottom:8px; }
+  .pgroup { margin:6px 0; font-size:13px; }
+  .pgroup b { color:var(--muted); font-weight:500; margin-right:6px; }
+  .chip { display:inline-block; margin:2px 4px 2px 0; padding:3px 10px; border:1px solid var(--line);
+          border-radius:14px; background:var(--field); color:var(--text); font-size:12.5px;
+          cursor:pointer; user-select:none; }
+  .chip:hover { border-color:var(--accent); color:var(--accent); }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:var(--accent-txt); }
+  .chip.bad:hover { border-color:var(--err); color:var(--err); }
+  .chip.bad.on { background:var(--err); border-color:var(--err); color:#fff; }
+  .pattern { margin-top:8px; font-family:ui-monospace,Menlo,monospace; font-size:12px;
+             color:var(--muted); word-break:break-all; min-height:15px; }
+  .cust-inp { width:190px; padding:4px 9px; font-size:12.5px; }
+  .pgroup select { padding:4px 6px; font-size:12.5px; }
+  #forums, #sections { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; }
+  #forums label, #forums-more label, #top-types label,
+  #sections label, #sections-more label {
+    display:flex; align-items:center; gap:5px; font-size:13px; cursor:pointer; }
+  #top-types { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:6px; }
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none;
+             align-items:center; justify-content:center; z-index:10; padding:16px; }
+  @media (prefers-color-scheme: dark) { .overlay { background:rgba(0,0,0,.6); } }
+  .overlay.on { display:flex; }
+  .modal { background:var(--card); border:1px solid var(--line); border-radius:12px; max-width:560px;
+           width:100%; max-height:80vh; display:flex; flex-direction:column; padding:18px; overflow-y:auto; }
+  .modal h3 { margin:0 0 10px; font-size:16px; }
+  .modal .x { margin-left:auto; }
+  .mhead { display:flex; align-items:center; margin-bottom:6px; }
+  .hist { overflow-y:auto; }
   .hi { display:flex; gap:12px; padding:8px 0; border-top:1px solid var(--line); font-size:14px; }
   .hi:first-of-type { border-top:0; }
   .hi .d { color:var(--muted); font-size:12.5px; white-space:nowrap; padding-top:2px; }
   .hi .t { min-width:0; }
   .hi .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
   .hi .t small { color:var(--muted); }
-  .pk { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>nnm<span>-rss</span></h1>
-    <p>Личные RSS-ленты NNM-Club для торрент-клиента</p>
+    <h1>NNM-Club <span>RSS</span></h1>
+    <p>Ваш персональный RSS для torrent-клиента с сайта nnm-club
+      <span style="float:right;white-space:nowrap">
+        <button id="passwd-btn" class="ghost mini" hidden>Сменить пароль</button>
+        <button id="quit" class="ghost mini" hidden>Выйти</button>
+      </span></p>
   </header>
 
-  <!-- публичная главная: открытие своей страницы по passkey -->
-  <div id="open" style="display:none">
+  <!-- публичная главная -->
+  <div id="open">
     <div class="card">
-      <h2>Ваш passkey</h2>
-      <p class="hint">Passkey — ваш постоянный ключ на NNM-Club (как TrackerId у LostFilm):
-        по нему трекер считает раздачи вашими. Лента отдаёт магниты с вашим личным announce.
-        Настройки хранятся в привязке к ключу: указали — открылась ваша страница.
-        Логин, пароль и cookie не нужны, ключ никогда не истекает.</p>
-      <div class="row">
-        <input id="pk-input" type="text" placeholder="00680ffd1c4d0286486403595191d662" spellcheck="false">
-        <button id="pk-go">Открыть мою подписку</button>
-      </div>
-      <details>
-        <summary style="cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px">Где взять passkey</summary>
-        <ol>
-          <li>Скачайте любой torrent-файл с nnmclub.to и добавьте его в торрент-клиент</li>
-          <li>Свойства торрента → <b>Trackers</b> — трекер-URL вида
-            <code>http://bt02.nnm-club.cc:2710/<b>00680f…</b>/announce</code></li>
-          <li>Скопируйте 32 символа между <code>:2710/</code> и <code>/announce</code> — это и есть passkey</li>
-        </ol>
-      </details>
+      <h2>Вход</h2>
+      <p class="hint">Логин и пароль — от этого сайта (не от NNM-Club), сохраните их
+        в менеджере паролей: по ним страница открывается с любого устройства.
+        Магниты в лентах идут без трекеров — NNM-Club выдаёт уникальный ключ на
+        каждое скачивание, клиент находит пиры через DHT/PEX.</p>
+      <form id="login-form" method="post" action="/api/login">
+        <div class="row">
+          <input id="login-inp" name="login" type="text" placeholder="логин" spellcheck="false" autocapitalize="off" autocomplete="username" required>
+          <input id="pass-inp" name="password" type="password" placeholder="пароль" autocomplete="current-password" required>
+          <button id="login-go" type="submit">Войти</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="login-new" class="ghost" type="submit" formaction="/api/register">Регистрация</button>
+        </div>
+      </form>
       <div id="pk-msg" class="msg"></div>
     </div>
   </div>
@@ -99,41 +164,114 @@
   <div id="app" style="display:none">
 
     <div class="card">
-      <h2>Моя лента</h2>
-      <p class="hint">Добавьте этот URL в торрент-клиент (transmission-rss, qBittorrent и т.п.).
-        В ленту попадает всё из включённых подписок, прошедшее фильтры.</p>
-      <div class="feedurl">
-        <input id="feed" type="text" readonly>
-        <button id="copy">Копировать</button>
+      <h2>Авто-лента</h2>
+      <p class="hint">Подписки с меткой «авто» — слежение за изменением конкретных раздач.
+        Новая версия раздачи → новый item → клиент скачает обновление.</p>
+      <div class="feedrow">
+        <div class="codebox"><span class="url" id="feed"></span><button class="copyicon" id="copy" title="Копировать">⧉</button></div>
       </div>
-      <p class="hint" style="margin:10px 0 0">Ключ: <span class="pk" id="pk-show"></span> ·
-        <a href="#" id="pk-change" style="color:var(--muted)">это не мой ключ</a></p>
+      <div class="histrow"><a class="histlink" id="hist-auto-btn">История</a></div>
+      <details><summary>Фильтр ленты (поверх фильтров подписок)</summary><div id="fb-auto"></div>
+        <div class="row" style="margin-top:10px"><button class="ghost" id="fl-auto-save">Сохранить фильтры</button></div>
+        <div id="fl-auto-msg" class="msg"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Лента разделов</h2>
+      <p class="hint">Только подписки-разделы — поиск нового: смотреть в клиенте без автоскачивания.</p>
+      <div class="feedrow">
+        <div class="codebox"><span class="url" id="feed-all"></span><button class="copyicon" id="copy-all" title="Копировать">⧉</button></div>
+      </div>
+      <div class="histrow"><a class="histlink" id="hist-all-btn">История</a></div>
+      <details><summary>Фильтр ленты (поверх фильтров подписок)</summary><div id="fb-all"></div>
+        <div class="row" style="margin-top:10px"><button class="ghost" id="fl-all-save">Сохранить фильтры</button></div>
+        <div id="fl-all-msg" class="msg"></div>
+      </details>
+      <details><summary>Разделы ленты</summary>
+        <p class="hint" style="margin:8px 0 0">Отмеченные разделы (с подфорумами) — источник
+          этой ленты. Настраивается и ссылками-подписками, тут — галками.</p>
+        <div id="sections"></div>
+        <details style="margin-left:8px"><summary>Остальные разделы</summary>
+          <div id="sections-more"></div>
+        </details>
+        <div style="margin-top:12px"><button class="ghost" id="sections-save">Сохранить разделы</button></div>
+        <div id="sections-msg" class="msg"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Топ-лента</h2>
+      <p class="hint">Популярные раздачи за 14 дней: топ по сидам в выбранных разделах
+        (по умолчанию — всё видео). В историю не пишется.</p>
+      <div class="feedrow">
+        <div class="codebox"><span class="url" id="feed-top"></span><button class="copyicon" id="copy-top" title="Копировать">⧉</button></div>
+      </div>
+      <details><summary>Фильтр ленты</summary><div id="fb-top"></div>
+        <div class="row" style="margin-top:10px"><button class="ghost" id="fl-top-save">Сохранить фильтры</button></div>
+        <div id="fl-top-msg" class="msg"></div>
+      </details>
+      <details><summary>Охват топа: разделы и типы раздач</summary>
+        <p class="hint" style="margin:8px 0 0">Выбранные разделы работают с подфорумами.</p>
+        <div id="forums"></div>
+        <details style="margin-left:8px"><summary>Остальные разделы</summary>
+          <div id="forums-more"></div>
+        </details>
+        <p class="hint" style="margin:14px 0 6px"><b>Тип раздач</b> (несколько можно; пусто = все):</p>
+        <div id="top-types"></div>
+        <p class="hint" style="margin:6px 0 0">«Золотые» = учёт скачивания отключён (freeleech),
+          серебряные/бронзовые/платиновые — скидки на учёт.</p>
+        <div style="margin-top:12px"><button class="ghost" id="forums-save">Сохранить разделы и опции</button></div>
+        <div id="forums-msg" class="msg"></div>
+      </details>
     </div>
 
     <div class="card">
       <h2>Подписки</h2>
-      <p class="hint">Вставьте ссылку раздела (tracker.php?f=…) или конкретной раздачи (viewtopic.php?t=…).
-        Фильтры — регулярные выражения по названию, можно оставить пустыми.</p>
+      <p class="hint">Ссылка на раздачу (viewtopic.php?t=…) → в авто (слежение за изменениями),
+        ссылка на раздел (tracker.php?f=…) → в ленту разделов.</p>
       <div class="row">
         <input id="s-url" type="text" placeholder="ссылка с nnmclub.to">
       </div>
+      <details open><summary>Фильтр этой подписки (узкий, действует только на неё)</summary><div id="fb-add"></div></details>
       <div class="row" style="margin-top:10px">
-        <input id="s-filter" type="text" placeholder="фильтр: 1080|2160">
-        <input id="s-exclude" type="text" placeholder="исключить: camrip|звук с TS">
         <button id="s-add">Добавить</button>
       </div>
       <div id="s-msg" class="msg"></div>
       <div id="subs"></div>
     </div>
-
-    <div class="card">
-      <h2>История</h2>
-      <p class="hint">Последние раздачи, прошедшие через вашу ленту (обновляется когда торрент-клиент опрашивает ленту).</p>
-      <div id="history" class="hist"><p class="hint">Пока пусто.</p></div>
-    </div>
   </div>
 
-  <footer>nnm-rss · магниты с вашим личным announce · статистика на трекере — ваша</footer>
+  <footer>NNM-Club RSS · ваш персональный RSS для torrent-клиента</footer>
+</div>
+
+<!-- смена пароля — отдельная страница /passwd (классический POST: Safari
+     показывает «обновить пароль» только на реальной навигации) -->
+
+<!-- всплывашка истории -->
+<div class="overlay" id="hist-modal">
+  <div class="modal">
+    <div class="mhead">
+      <h3 id="hist-title">История</h3>
+      <button class="ghost mini x" id="hist-close">✕</button>
+    </div>
+    <div class="hist" id="hist-body"></div>
+  </div>
+</div>
+
+<!-- всплывашка редактирования подписки -->
+<div class="overlay" id="edit-modal">
+  <div class="modal">
+    <div class="mhead">
+      <h3 id="edit-title">Фильтры подписки</h3>
+      <button class="ghost mini x" id="edit-close">✕</button>
+    </div>
+    <div id="fb-edit"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="edit-save">Сохранить</button>
+      <button class="ghost" id="edit-cancel">Отмена</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -156,11 +294,165 @@ function msg(el, text, ok) {
   el.className = 'msg ' + (ok ? 'ok' : 'err');
 }
 
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ----- пресеты фильтров: перевод — как в меню торрентов Lampa, студии — отдельно
+const PRESETS = [
+  {group: 'Качество', side: 'inc', items: [
+    ['2160p', '2160|4k|uhd'], ['1080p', '1080'], ['720p', '720'],
+  ]},
+  {group: 'Источник', side: 'inc', items: [
+    ['WEB-DL', 'web-?dl'], ['WEBRip', 'webrip'], ['BDRip', 'bd-?rip'],
+    ['HDTVRip', 'hdtv'], ['Blu-ray/Remux', 'remux|blu-?ray'], ['DVD', 'dvd'],
+  ]},
+  {group: 'Перевод', side: 'inc', items: [
+    ['Дубляж', 'дубляж|дубл'], ['Многоголосый', 'многоголос|mvo'],
+    ['Двухголосый', 'двухголос|dvo'], ['Одноголосый', 'одноголос|avo'],
+    ['Субтитры', 'субтитр'],
+  ]},
+  {group: 'Студии', side: 'inc', items: [
+    ['LostFilm', 'lostfilm'], ['Кубик в Кубе', 'кубик в кубе'], ['NewStudio', 'newstudio'],
+    ['RedHeadSound', 'red ?head'], ['HDrezka', 'hdrezka'],
+  ]},
+  {group: 'Язык', side: 'inc', items: [
+    ['Русский', 'rus|русск'], ['English/оригинал', 'eng|english|английск|ориг|raw'],
+    ['Украинский', 'ukr|украинск'], ['Мульти', 'multi'],
+  ]},
+  {group: 'Исключить плохое', side: 'exc', items: [
+    ['CAM/TS/камрип', 'cam.?rip|ts.?rip|hdts|telesync|telecine|screener|зрительный зал|\\bts\\b|\\btc\\b|\\bscr\\b'],
+    ['Звук с TS', 'звук с\\s?ts'],
+  ]},
+];
+
+const escRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// makeBuilder — конструктор фильтра из чипов + поле «своё» с сравнением
+// (содержит/не содержит/равно/не равно); добавленное становится чипом
+function makeBuilder(mountId) {
+  const mount = $(mountId);
+  mount.innerHTML = '';
+  const sel = { inc: new Map(), exc: new Map() }; // label → regex
+  const customs = []; // {text, mode} mode: has|hasNot|eq|notEq
+
+  const customRe = c => {
+    const t = escRe(c.text);
+    if (c.mode === 'eq' || c.mode === 'notEq') return '^' + t + '$';
+    return t; // содержит / не содержит
+  };
+
+  const render = () => {
+    mount.innerHTML = '';
+    for (const g of PRESETS) {
+      const div = document.createElement('div');
+      div.className = 'pgroup';
+      div.innerHTML = `<b>${g.group}:</b>`;
+      for (const [label, re] of g.items) {
+        const chip = document.createElement('span');
+        const on = sel[g.side].has(label);
+        chip.className = 'chip' + (g.side === 'exc' ? ' bad' : '') + (on ? ' on' : '');
+        chip.textContent = label;
+        chip.title = re;
+        chip.onclick = () => {
+          if (sel[g.side].has(label)) sel[g.side].delete(label);
+          else sel[g.side].set(label, re);
+          render();
+        };
+        div.appendChild(chip);
+      }
+      mount.appendChild(div);
+    }
+    const cgrp = document.createElement('div');
+    cgrp.className = 'pgroup';
+    cgrp.innerHTML = '<b>Своё:</b>';
+    customs.forEach((c, i) => {
+      const chip = document.createElement('span');
+      const bad = c.mode === 'hasNot' || c.mode === 'notEq';
+      chip.className = 'chip on' + (bad ? ' bad' : '');
+      const modeName = {has: 'содержит', hasNot: 'не содержит', eq: 'равно', notEq: 'не равно'}[c.mode];
+      chip.textContent = `«${c.text}» — ${modeName}`;
+      chip.title = customRe(c);
+      chip.onclick = () => { customs.splice(i, 1); render(); };
+      cgrp.appendChild(chip);
+    });
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = 'слово или фраза'; inp.className = 'cust-inp';
+    const modeSel = document.createElement('select');
+    for (const [v, n] of [['has','содержит'],['hasNot','не содержит'],['eq','равно'],['notEq','не равно']]) {
+      const o = document.createElement('option'); o.value = v; o.textContent = n;
+      modeSel.appendChild(o);
+    }
+    const addBtn = document.createElement('button');
+    addBtn.className = 'ghost mini'; addBtn.textContent = '+';
+    const addCustom = () => {
+      const t = inp.value.trim();
+      if (!t) return;
+      customs.push({text: t, mode: modeSel.value});
+      inp.value = '';
+      render();
+    };
+    addBtn.onclick = addCustom;
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } });
+    cgrp.appendChild(inp); cgrp.appendChild(modeSel); cgrp.appendChild(addBtn);
+    mount.appendChild(cgrp);
+
+    const p = document.createElement('div');
+    p.className = 'pattern';
+    const inc = get('inc'), exc = get('exc');
+    p.textContent = (inc ? 'только: ' + inc : '') + (exc ? (inc ? '  ' : '') + 'без: ' + exc : '');
+    mount.appendChild(p);
+  };
+
+  const get = side => {
+    const parts = [...sel[side].values()];
+    for (const c of customs) {
+      const isExc = c.mode === 'hasNot' || c.mode === 'notEq';
+      if ((side === 'exc') === isExc) parts.push('(?:' + customRe(c) + ')');
+    }
+    return parts.join('|');
+  };
+
+  const set = (incStr, excStr) => {
+    sel.inc.clear(); sel.exc.clear(); customs.length = 0;
+    const mark = (str, side) => {
+      let rest = str || '';
+      for (const g of PRESETS) {
+        if (g.side !== side) continue;
+        for (const [label, re] of g.items) {
+          const rx = new RegExp(re, 'i');
+          if (rx.test(rest)) {
+            sel[side].set(label, re);
+            rest = rest.replace(rx, '');
+          }
+        }
+      }
+      rest = rest.replace(/^\s*\|\s*|\s*\|\s*$/g, '').replace(/\|\s*\|/g, '|').trim();
+      if (rest) customs.push({text: rest, mode: side === 'inc' ? 'has' : 'hasNot'});
+    };
+    mark(incStr, 'inc');
+    mark(excStr, 'exc');
+    render();
+  };
+
+  set('', '');
+  return { get: () => ({inc: get('inc'), exc: get('exc')}), set };
+}
+
+const fbAuto = makeBuilder('fb-auto');
+const fbAll = makeBuilder('fb-all');
+const fbTop = makeBuilder('fb-top');
+const fbAdd = makeBuilder('fb-add');
+const fbEdit = makeBuilder('fb-edit');
+
+// ----- загрузка
 async function load() {
   try {
     me = await api('GET', '/api/me');
   } catch (e) {
-    if (e.message.includes('passkey')) {
+    if (e.message.includes('не авторизован')) {
       $('open').style.display = '';
       $('app').style.display = 'none';
       return;
@@ -169,47 +461,86 @@ async function load() {
   }
   $('open').style.display = 'none';
   $('app').style.display = '';
-  $('feed').value = me.feed_url;
-  $('pk-show').textContent = me.passkey.slice(0, 8) + '…';
+  // без логина (старый вход по коду) «Выйти» прячем: выйти будет некуда,
+  // пока не привяжете логин/пароль кнопкой в шапке
+  $('quit').hidden = !me.login;
+  $('passwd-btn').hidden = false;
+  $('passwd-btn').textContent = me.login ? 'Сменить пароль' : 'Задать логин и пароль';
+  $('feed').textContent = me.feed_url;
+  $('feed-all').textContent = me.feed_url_all;
+  $('feed-top').textContent = location.origin + '/rss/' + me.passkey + '/top/14';
+
+  for (const [k, fb] of [['auto', fbAuto], ['all', fbAll], ['top', fbTop]]) {
+    const ff = (me.filters || {})[k] || {};
+    fb.set(ff.include || '', ff.exclude || '');
+  }
   renderSubs();
-  renderHistory();
+  loadForums();
+  loadSections();
 }
 
-function renderSubs() {
-  const box = $('subs');
-  box.innerHTML = '';
-  if (!me.subs || !me.subs.length) {
-    box.innerHTML = '<p class="hint" style="margin-top:12px">Пока пусто — добавьте раздел или раздачу выше.</p>';
-    return;
-  }
-  for (const s of me.subs) {
-    const div = document.createElement('div');
-    div.className = 'sub';
-    const flt = [s.filter && 'фильтр: ' + s.filter, s.exclude && 'без: ' + s.exclude]
-      .filter(Boolean).join(' · ') || 'без фильтров';
-    div.innerHTML = `
-      <label class="sw"><input type="checkbox" ${s.enabled ? 'checked' : ''}><i></i></label>
-      <div class="t">
-        <b>${esc(s.title)}</b>
-        <small><span class="badge">${s.kind === 'forum' ? 'раздел' : 'раздача'}</span> ${esc(flt)}</small>
-      </div>
-      <button class="ghost mini" title="изменить фильтры">✎</button>
-      <button class="del" title="удалить">✕</button>`;
-    div.querySelector('.sw input').onchange = () => patch(s, {enabled: !s.enabled});
-    div.querySelector('.ghost').onclick = () => editSub(s);
-    div.querySelector('.del').onclick = () => {
-      if (!confirm('Удалить «' + s.title + '»?')) return;
-      api('DELETE', '/api/subs/' + s.id).then(load).catch(e => msg($('s-msg'), e.message));
-    };
-    box.appendChild(div);
-  }
+// ----- фильтры лент
+for (const [k, fb] of [['auto', fbAuto], ['all', fbAll], ['top', fbTop]]) {
+  $('fl-' + k + '-save').onclick = async () => {
+    const v = fb.get();
+    try {
+      await api('PUT', '/api/filters', {feed: k, include: v.inc, exclude: v.exc});
+      msg($('fl-' + k + '-msg'), '✓ фильтр сохранён', true);
+    } catch (e) { msg($('fl-' + k + '-msg'), e.message); }
+  };
 }
 
-function renderHistory() {
-  const box = $('history');
-  if (!me.history || !me.history.length) return;
-  box.innerHTML = '';
-  for (const h of me.history) {
+// ----- копирование (clipboard API в https, фолбэк на http)
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  return ok ? Promise.resolve() : Promise.reject(new Error('copy'));
+}
+const copyBtn = (btn, input) => () =>
+  copyText($(input).textContent).then(() => {
+    $(btn).textContent = '✓';
+    $(btn).classList.add('ok');
+    setTimeout(() => { $(btn).textContent = '⧉'; $(btn).classList.remove('ok'); }, 1200);
+  }).catch(() => {
+    const r = document.createRange();
+    r.selectNodeContents($(input));
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  });
+$('copy').onclick = copyBtn('copy', 'feed');
+$('copy-all').onclick = copyBtn('copy-all', 'feed-all');
+$('copy-top').onclick = copyBtn('copy-top', 'feed-top');
+
+// клик по полю ссылки — выделить целиком
+for (const id of ['feed', 'feed-all', 'feed-top']) {
+  $(id).onclick = () => {
+    const r = document.createRange();
+    r.selectNodeContents($(id));
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  };
+}
+
+// (смена ключа-кода ушла вместе с входом по коду — теперь логин/пароль)
+
+// ----- истории во всплывашке
+function showHistory(title, hist) {
+  $('hist-title').textContent = title;
+  const box = $('hist-body');
+  box.innerHTML = hist && hist.length ? '' : '<p class="hint">Пока пусто.</p>';
+  for (const h of hist || []) {
     const div = document.createElement('div');
     div.className = 'hi';
     const d = new Date(h.date);
@@ -217,15 +548,100 @@ function renderHistory() {
     const date = p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(2) +
                  ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
     div.innerHTML = `<span class="d">${date}</span>
-      <div class="t"><b>${esc(h.title)}</b><small>${esc(h.url && h.url.startsWith('magnet:') ? 'магнит · в вашей статистике' : 'ссылка на тему')}</small></div>`;
+      <div class="t"><b>${esc(h.title)}</b><small>${esc(h.url && h.url.startsWith('magnet:') ? 'магнит' : 'ссылка на тему')}</small></div>`;
     box.appendChild(div);
   }
+  $('hist-modal').classList.add('on');
 }
+$('hist-auto-btn').onclick = () => showHistory('История авто-ленты', me.history_auto);
+$('hist-all-btn').onclick = () => showHistory('История ленты разделов', me.history_all);
+$('hist-close').onclick = () => $('hist-modal').classList.remove('on');
+$('hist-modal').onclick = e => { if (e.target === $('hist-modal')) $('hist-modal').classList.remove('on'); };
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+// ----- подписки: две группы — авто и разделы
+function renderSubs() {
+  const box = $('subs');
+  box.innerHTML = '';
+  const autos = (me.subs || []).filter(s => s.kind !== 'forum');
+  const forums = (me.subs || []).filter(s => s.kind === 'forum');
+
+  const group = (title, list, withPoster) => {
+    if (!list.length) return null;
+    const g = document.createElement('div');
+    g.className = 'subgr';
+    g.innerHTML = `<h3>${title}</h3>`;
+    for (const s of list) {
+      const div = document.createElement('div');
+      div.className = 'sub';
+      const flt = [s.filter && 'только: ' + s.filter, s.exclude && 'без: ' + s.exclude]
+        .filter(Boolean).join(' · ') || 'без фильтров';
+      div.innerHTML = `
+        ${withPoster && s.poster ? `<img src="${esc(s.poster)}" loading="lazy" alt="">` : ''}
+        <div class="t">
+          <b>${esc(s.title)}</b>
+          <small>${s.kind === 'forum'
+            ? '<a href="#" class="autobadge" style="text-decoration:none">' + (s.auto ? '<span class="badge auto">тоже в авто</span>' : '<span class="badge">только просмотр</span>') + '</a>'
+            : '<span class="badge auto">авто</span>'} ${esc(flt)}</small>
+        </div>
+        <label class="sw" title="вкл/выкл подписку"><input type="checkbox" ${s.enabled ? 'checked' : ''}><i></i></label>
+        <button class="ghost mini" title="изменить фильтры">✎</button>
+        <button class="del" title="удалить">✕</button>`;
+      div.querySelector('.sw input').onchange = () => patch(s, {enabled: !s.enabled});
+      const ab = div.querySelector('.autobadge');
+      if (ab) ab.onclick = e => { e.preventDefault(); patch(s, {auto: !s.auto}); };
+      div.querySelector('.ghost').onclick = () => openEdit(s);
+      div.querySelector('.del').onclick = () => {
+        if (!confirm('Удалить «' + s.title + '»?')) return;
+        api('DELETE', '/api/subs/' + s.id).then(load).catch(e => msg($('s-msg'), e.message));
+      };
+      g.appendChild(div);
+    }
+    return g;
+  };
+
+  const gA = group('Авто — раздачи', autos, true);
+  if (gA) box.appendChild(gA);
+
+  // разделы — строкой на корень (галки «Разделы ленты» разворачиваются в листья)
+  if (forums.length) {
+    const g = document.createElement('div');
+    g.className = 'subgr';
+    g.innerHTML = '<h3>Разделы — поиск</h3>';
+    const byRoot = new Map();
+    for (const s of forums) {
+      const key = s.root_id || ('s' + s.nnm_id);
+      if (!byRoot.has(key)) byRoot.set(key, {name: s.root || s.title, subs: []});
+      byRoot.get(key).subs.push(s);
+    }
+    for (const {name, subs} of byRoot.values()) {
+      const leaves = subs;
+      const flt = leaves[0].filter || leaves[0].exclude
+        ? [leaves[0].filter && 'только: ' + leaves[0].filter, leaves[0].exclude && 'без: ' + leaves[0].exclude].filter(Boolean).join(' · ')
+        : 'без фильтров';
+      const div = document.createElement('div');
+      div.className = 'sub';
+      div.innerHTML = `
+        <div class="t">
+          <b>${esc(name)}</b>
+          <small>${leaves.length > 1 ? leaves.length + ' подфорумов · ' : ''}${esc(flt)}</small>
+        </div>
+        <label class="sw" title="вкл/выкл"><input type="checkbox" ${leaves[0].enabled ? 'checked' : ''}><i></i></label>
+        <button class="ghost mini" title="изменить фильтры (на все подфорумы)">✎</button>
+        <button class="del" title="удалить раздел">✕</button>`;
+      const setAll = body => leaves.forEach(s => patch(s, body));
+      div.querySelector('.sw input').onchange = () => setAll({enabled: !leaves[0].enabled});
+      div.querySelector('.ghost').onclick = () => openEdit(leaves[0], setAll);
+      div.querySelector('.del').onclick = () => {
+        if (!confirm('Удалить «' + name + '» (' + leaves.length + ' подп.)?')) return;
+        leaves.forEach(s => api('DELETE', '/api/subs/' + s.id).catch(() => {}));
+        load();
+      };
+      g.appendChild(div);
+    }
+    box.appendChild(g);
+  }
+
+  if (!gA && !forums.length) box.innerHTML = '<p class="hint" style="margin-top:12px">Пока пусто — добавьте раздачу или раздел выше.</p>';
 }
 
 async function patch(s, body) {
@@ -235,52 +651,134 @@ async function patch(s, body) {
   } catch (e) { msg($('s-msg'), e.message); }
 }
 
-function editSub(s) {
-  const f = prompt('Фильтр (регулярное выражение, пусто = всё):', s.filter || '');
-  if (f === null) return;
-  const x = prompt('Исключить (регулярное выражение):', s.exclude || '');
-  if (x === null) return;
-  patch(s, {filter: f.trim(), exclude: x.trim()});
+let editing = null, editingApply = null;
+function openEdit(s, applyAll) {
+  editing = s;
+  editingApply = applyAll || null;
+  $('edit-title').textContent = s.root ? s.root : s.title;
+  fbEdit.set(s.filter || '', s.exclude || '');
+  $('edit-modal').classList.add('on');
 }
-
-// ----- открытие своей страницы
-$('pk-go').onclick = async () => {
-  const pk = $('pk-input').value.trim();
-  if (!pk) return msg($('pk-msg'), 'вставьте 32 hex-символа');
-  try {
-    await api('POST', '/api/open', {passkey: pk});
-    await load();
-  } catch (e) { msg($('pk-msg'), e.message); }
+$('edit-save').onclick = async () => {
+  const v = fbEdit.get();
+  $('edit-modal').classList.remove('on');
+  if (editingApply) {
+    editingApply({filter: v.inc, exclude: v.exc});
+  } else {
+    await patch(editing, {filter: v.inc, exclude: v.exc});
+  }
 };
-$('pk-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('pk-go').click(); });
+$('edit-cancel').onclick = $('edit-close').onclick = () => $('edit-modal').classList.remove('on');
+$('edit-modal').onclick = e => { if (e.target === $('edit-modal')) $('edit-modal').classList.remove('on'); };
 
-$('pk-change').onclick = async e => {
-  e.preventDefault();
-  await api('POST', '/api/close');
-  location.reload();
-};
+// ----- вход: логин + пароль; форма — чтобы браузер предлагал сохранить пароль.
+// autocomplete пароля переключаем по кнопке: new-password на регистрации
+// (тогда Safari/Keychain предлагают СОХРАНИТЬ), current-password на входе
+// вход/регистрация — классический POST c навигацией (/api/login, /api/register):
+// реальный сабмит — единственное, на что Safari гарантированно показывает
+// «сохранить пароль». Регистрация дополнительно ставит new-password — тогда
+// Safari предлагает сгенерировать и точно сохранить
+$('login-go').addEventListener('click', () => {
+  $('pass-inp').setAttribute('autocomplete', 'current-password');
+});
+$('login-new').addEventListener('click', () => {
+  $('pass-inp').setAttribute('autocomplete', 'new-password');
+});
+// ошибка входа приходит редиректом с ?e=
+if (new URLSearchParams(location.search).get('e'))
+  msg($('pk-msg'), new URLSearchParams(location.search).get('e'));
+history.replaceState(null, '', '/');
+$('quit').onclick = async () => { await api('POST', '/api/logout'); location.reload(); };
 
-// ----- подписки
+// смена/задание пароля — отдельной страницей /passwd
+$('passwd-btn').onclick = () => { location.href = '/passwd'; };
+
+// ----- добавление подписок
 $('s-add').onclick = async () => {
   const url = $('s-url').value.trim();
   if (!url) return msg($('s-msg'), 'вставьте ссылку');
+  const v = fbAdd.get();
+  msg($('s-msg'), 'добавляю…');
   try {
-    await api('POST', '/api/subs', {
-      url,
-      filter: $('s-filter').value.trim(),
-      exclude: $('s-exclude').value.trim()
-    });
-    $('s-url').value = ''; $('s-filter').value = ''; $('s-exclude').value = '';
+    await api('POST', '/api/subs', {url, filter: v.inc, exclude: v.exc});
+    $('s-url').value = '';
+    fbAdd.set('', '');
     msg($('s-msg'), 'добавлено', true);
     await load();
   } catch (e) { msg($('s-msg'), e.message); }
 };
 
-$('copy').onclick = () => {
-  navigator.clipboard.writeText($('feed').value).then(() => {
-    $('copy').textContent = '✓';
-    setTimeout(() => $('copy').textContent = 'Копировать', 1200);
-  });
+// ----- разделы/опции топа
+async function loadForums() {
+  try {
+    const d = await api('GET', '/api/forums');
+    const sel = new Set(d.selected || []);
+    const mk = c => {
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = c.id; cb.checked = sel.has(c.id);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(c.name));
+      return lab;
+    };
+    const prim = $('forums'), rest = $('forums-more');
+    prim.innerHTML = ''; rest.innerHTML = '';
+    for (const c of d.categories || []) {
+      (c.primary ? prim : rest).appendChild(mk(c));
+    }
+    const tsBox = $('top-types');
+    tsBox.innerHTML = '';
+    const tsSel = new Set(d.types_sel || []);
+    for (const t of d.types || []) {
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = t.value; cb.checked = tsSel.has(t.value);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(t.name));
+      tsBox.appendChild(lab);
+    }
+  } catch (e) { /* не критично */ }
+}
+
+// ----- разделы «Ленты разделов»
+async function loadSections() {
+  try {
+    const d = await api('GET', '/api/sections');
+    const sel = new Set(d.selected || []);
+    const mk = c => {
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = c.id; cb.checked = sel.has(c.id);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(c.name));
+      return lab;
+    };
+    const prim = $('sections'), rest = $('sections-more');
+    prim.innerHTML = ''; rest.innerHTML = '';
+    for (const c of d.categories || []) {
+      (c.primary ? prim : rest).appendChild(mk(c));
+    }
+  } catch (e) { /* не критично */ }
+}
+
+$('sections-save').onclick = async () => {
+  const ids = [...document.querySelectorAll('#sections input:checked, #sections-more input:checked')]
+    .map(cb => +cb.value);
+  try {
+    await api('PUT', '/api/sections', {ids});
+    msg($('sections-msg'), '✓ разделы ленты сохранены', true);
+    await load();
+  } catch (e) { msg($('sections-msg'), e.message); }
+};
+
+$('forums-save').onclick = async () => {
+  const ids = [...document.querySelectorAll('#forums input:checked, #forums-more input:checked')]
+    .map(cb => +cb.value);
+  const types = [...document.querySelectorAll('#top-types input:checked')].map(cb => +cb.value);
+  try {
+    await api('PUT', '/api/forums', {ids, types});
+    msg($('forums-msg'), '✓ разделы и опции топа сохранены', true);
+  } catch (e) { msg($('forums-msg'), e.message); }
 };
 
 load();

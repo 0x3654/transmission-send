@@ -256,10 +256,13 @@
                 if(v && v !== 'any' && voices.indexOf(v) === -1) voices.push(v)
             })
 
+            var ru = field('top_russian_only') === 'false' ? '0' : '1'
+
             return '/top?cat=video&pages=' + pages +
                 '&sort=' + (sort || 'seeds') +
                 (minq ? '&minq=' + minq : '') +
                 '&junk=' + junk +
+                '&ru=' + ru +
                 (voices.length ? '&voice=' + encodeURIComponent(voices.join(',')) : '')
         }
 
@@ -483,6 +486,7 @@
                     { title: T('settings_voice_2') + ': ' + (VOICES[field('top_voice_2')] || VOICES.any), values: VOICES, key: 'top_voice_2' },
                     { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
                     { title: T('settings_no_cam') + ': ' + yesNo('top_no_cam'), toggle: 'top_no_cam' },
+                    { title: T('settings_russian_only') + ': ' + yesNo('top_russian_only'), toggle: 'top_russian_only' },
                     { title: '↻ ' + T('apply'), go: true }
                 ], function(){
                     Lampa.Storage.set('top_trackers_sort', field('top_trackers_sort') || 'seeds')
@@ -873,6 +877,19 @@
         Lampa.SettingsApi.addParam({
             component: 'top',
             param: {
+                name: 'top_russian_only',
+                type: 'trigger',
+                default: true
+            },
+            field: {
+                name: T('settings_russian_only'),
+                description: T('settings_russian_only_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
                 name: 'top_no_cam',
                 type: 'trigger',
                 default: true
@@ -915,6 +932,8 @@
             top_settings_as_home_desc: { ru: 'при запуске открывается последний вариант «Топа»', en: 'open last used Top variant on start' },
             top_settings_min_quality: { ru: 'Мин. качество (трекеры)', en: 'Min quality (trackers)' },
             top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
+            top_settings_russian_only: { ru: 'Только русские названия', en: 'Russian titles only' },
+            top_settings_russian_only_desc: { ru: 'скрывать раздачи совсем без русских букв в названии', en: 'hide releases with no cyrillic in title' },
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
             top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
             top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },

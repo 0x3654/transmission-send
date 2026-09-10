@@ -269,3 +269,19 @@ func TestFilterVoice(t *testing.T) {
 	// пустой фильтр — всё на месте
 	check(t, "voice пустой", len(filterVoice(items, "")) == 4)
 }
+
+func TestFilterRussian(t *testing.T) {
+	items := []Item{
+		{Ru: "Холоп 3", Orig: "", Year: 2026},
+		{Ru: "Джентльмены", Orig: "The Gentlemen", Year: 2026},
+		{Ru: "Minions & Monsters", Orig: "", Year: 2026},   // совсем без кириллицы
+		{Ru: "Some Movie", Orig: "Some Movie", Year: 2026}, // тоже
+		{Ru: "Аниме", Orig: "Naruto", Year: 2026},
+	}
+	out := filterRussian(items, "1")
+	check(t, "ru=1: без кириллицы скрыты", len(out) == 3, len(out))
+	for _, it := range out {
+		check(t, "ru=1: "+it.Ru, hasCyrillic(it.Ru) || hasCyrillic(it.Orig), it.Ru)
+	}
+	check(t, "ru=0: всё на месте", len(filterRussian(items, "0")) == 5)
+}

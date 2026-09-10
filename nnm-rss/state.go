@@ -19,9 +19,13 @@ type Sub struct {
 	Kind    string `json:"kind"`    // forum | topic
 	NNMID   int    `json:"nnm_id"`  // id раздела или темы
 	Title   string `json:"title"`   // человекочитаемое название
+	Poster  string `json:"poster"`  // для списка подписок и описаний в ленте
 	Filter  string `json:"filter"`  // regexp включения (пустой = всё)
 	Exclude string `json:"exclude"` // regexp исключения
+	Auto    bool   `json:"auto"`    // попадает в авто-ленту (выбор юзера, любой тип)
 	Enabled bool   `json:"enabled"`
+	RootID  int    `json:"root_id,omitempty"` // корневой раздел (для галок «Ленты разделов»)
+	Root    string `json:"root,omitempty"`    // имя корневого раздела
 }
 
 // HistItem — строка истории «Моя подписка»: что прошло через ленту
@@ -32,11 +36,51 @@ type HistItem struct {
 	Date  time.Time `json:"date"`
 }
 
-// Profile — настройки и история владельца passkey
+// Profile — настройки и истории страницы; истории две — как ленты:
+// авто (что скачал клиент) и общая (всё, что прошло, включая разделы)
+// FeedFilter — фильтр ленты (у каждой свой, блок настроек одинаковый)
+type FeedFilter struct {
+	Include string `json:"include"` // regexp включения (пустой = всё)
+	Exclude string `json:"exclude"` // regexp исключения
+}
+
 type Profile struct {
-	Passkey string     `json:"passkey"`
-	Subs    []*Sub     `json:"subs"`
-	History []HistItem `json:"history"`
+	// доступ: логин + пароль (bcrypt). Passkey — секретный токен лент
+	// (/rss/<токен>, историческое имя поля), WebToken — токен сессии в куке
+	// (отдельный, от токена лент не производен). У старых профилей (до логинов)
+	// Login пуст — страница открывается прежней кукой, задать пароль можно
+	// кнопкой «Задать логин и пароль».
+	Login       string                 `json:"login,omitempty"`
+	PassHash    string                 `json:"pass_hash,omitempty"` // bcrypt
+	WebToken    string                 `json:"web_token,omitempty"`
+	Passkey     string                 `json:"passkey"` // токен лент: /rss/<passkey>
+	Subs        []*Sub                 `json:"subs"`
+	TopRoots    []int                  `json:"top_roots"`           // выбранные верхние разделы для топ-лент (пусто = видео по умолчанию)
+	TopSds      []int                  `json:"top_types,omitempty"` // типы раздач топа, мультивыбор (пусто = все): 0 обычные, 1 золотые, 2 серебряные, 3 бронзовые, 4 платиновые
+	TopSeen     map[string]int         `json:"top_seen,omitempty"`  // топ-лента: фильм → ранг качества выпущенного (повторы и downgrade не выпускаем)
+	Filters     map[string]*FeedFilter `json:"filters,omitempty"`   // ключи: auto, all, top
+	HistoryAuto []HistItem             `json:"history_auto"`
+	HistoryAll  []HistItem             `json:"history_all"`
+	HistoryTop  []HistItem             `json:"history_top"`
+}
+
+// profileByLogin / profileByWebToken — поиск по полям доступа
+func profileByLogin(login string) *Profile {
+	for _, p := range state.Profiles {
+		if p.Login == login {
+			return p
+		}
+	}
+	return nil
+}
+
+func profileByWebToken(tok string) *Profile {
+	for _, p := range state.Profiles {
+		if p.WebToken != "" && p.WebToken == tok {
+			return p
+		}
+	}
+	return nil
 }
 
 type stateFile struct {

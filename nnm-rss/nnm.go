@@ -28,6 +28,8 @@ const nnmUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
 
 var nnmClient = &http.Client{Timeout: 20 * time.Second}
 
+var omdbKey = env("OMDB_APIKEY", "") // бесплатный ключ omdbapi.com — для рейтинга IMDb (опционально)
+
 // fetchNNM — GET с UA и (не)равным cookie; cp1251 → utf-8 (валидный utf-8 не трогаем)
 func fetchNNM(u, cookie string) (string, error) {
 	req, err := http.NewRequest("GET", u, nil)
@@ -40,15 +42,32 @@ func fetchNNM(u, cookie string) (string, error) {
 		req.Header.Set("Cookie", cookie)
 	}
 
-	resp, err := nnmClient.Do(req)
-	if err != nil {
-		return "", err
+	// трекер притормаживает быстрые серии запросов — до 3 попыток с паузой
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		resp, err = nnmClient.Do(req)
+		if err == nil && resp.StatusCode != 200 {
+			resp.Body.Close()
+			err = fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
+		}
+		if err == nil {
+			break
+		}
+		if attempt >= 2 {
+			return "", err
+		}
+		time.Sleep(time.Duration(700*(attempt+1)) * time.Millisecond)
+		req, err = http.NewRequest("GET", u, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("User-Agent", nnmUA)
+		req.Header.Set("Accept-Encoding", "identity")
+		if cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
-	}
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -148,97 +167,570 @@ func cleanTitle(s string) string {
 
 var (
 	magnetRe   = regexp.MustCompile(`magnet:\?xt=urn:btih:([A-Fa-f0-9]{40})`)
-	anchorRe   = regexp.MustCompile(`<a name="\d+">`)
 	titleTagRe = regexp.MustCompile(`(?s)<title>(.*?)</title>`)
+	tagRe      = regexp.MustCompile(`<[^>]+>`)
+	spaceRe    = regexp.MustCompile(`\s+`)
+
+	// постер: var.postImg c url картинки; рейтинги КП/IMDb и служебные баннеры — мимо
+	posterRe = regexp.MustCompile(`var class="postImg[^"]*" title="([^"]+)"`)
+	// описание релиза: текст после «Описание:» до следующего тега
+	descrRe = regexp.MustCompile(`(?s)Описание:\s*(?:</[a-z]+>|<[^>]+>)*\s*([^<]{40,1000})`)
+
+	// техполя раздачи: «<span bold>Жанр:</span> значение<br»
+	techRe = regexp.MustCompile(`(?s)<span[^>]*font-weight:\s*bold[^>]*>\s*([^<>]{2,30}):\s*</span>\s*(.*?)<br`)
+
+	// сюжет — до следующего жирного поля (многоабзацный)
+	plotRe = regexp.MustCompile(`(?s)Описание:\s*</span>\s*(.*?)<span[^>]*font-weight:\s*bold`)
+	// карточка: рейтинг-картинка КП, ссылки на КП/IMDb, имя/размер торрента
+	kpRatingRe = regexp.MustCompile(`(https?://(?:www\.)?kinopoisk\.ru/rating/\d+\.gif)`)
+	kpLinkRe   = regexp.MustCompile(`(https?://(?:www\.)?kinopoisk\.ru/film/\d+/?)`)
+	imdbLinkRe = regexp.MustCompile(`(https?://(?:www\.)?imdb\.com/title/(tt\d+)/?)`)
+	malLinkRe  = regexp.MustCompile(`(https?://(?:www\.)?myanimelist\.net/anime/(\d+))`)
+	torNameRe  = regexp.MustCompile(`<b>(\[NNM[-.]?Club[^<]*?\.torrent)</b>`)
+	torSizeRe  = regexp.MustCompile(`(\d+(?:[.,]\d+)?(?:&nbsp;|\s)*(?:KB|MB|GB|КБ|МБ|ГБ))`)
+
+	postSelfRef = regexp.MustCompile(`viewtopic\.php\?t=(\d+)`)
 )
 
-// postSegment — кусок страницы от якоря поста до якоря следующего поста:
-// «Скачать» конкретной раздачи в темах-сералах живёт в посте релиза, не в шапке
-func postSegment(body string, postID int) string {
-	start := strings.Index(body, fmt.Sprintf(`<a name="%d">`, postID))
-	if start < 0 {
-		return ""
-	}
-	rest := body[start:]
-	if next := anchorRe.FindStringIndex(rest[20:]); next != nil {
-		return rest[:next[0]+20]
-	}
-	return rest
+// Release — всё, что достаём со страницы раздачи одним запросом.
+// Гостю виден только магнит ГЛАВНОЙ раздачи темы (у постов-эпизодов магнитов
+// нет), поэтому единица подписки — текущая раздача темы.
+type Release struct {
+	Hash   string
+	Poster string
+	Descr  string
+	Tech   []TechField // «Производство/Жанр/Видео/Аудио…» со страницы раздачи
+	// карточка страницы раздачи: рейтинг-картинка КП (через проки трекера)
+	// и ссылки на Кинопоиск/IMDb/MyAnimeList из поста
+	RatingImg  string
+	KP         string
+	IMDb       string
+	IMDbRating string // через OMDb (если задан OMDB_APIKEY)
+	IMDbVotes  string
+	MAL        string // ссылка myanimelist.net/anime/<id> (аниме-карточки)
+	MALRating  string // через Jikan (api.jikan.moe, без ключа)
+	MALVotes   string
+	TorName    string // имя torrent-файла (список файлов гостю скрыт)
+	TorSize    string
 }
 
-// findInfoHash — info-hash из магнит-ссылки в сегменте страницы (или во всей)
-func findInfoHash(seg string) string {
-	if m := magnetRe.FindStringSubmatch(seg); m != nil {
-		return m[1]
-	}
-	return ""
+// TechField — строка техданных раздачи («Жанр: комедия»)
+type TechField struct {
+	Name  string
+	Value string
 }
 
-// resolveInfoHash — info-hash раздачи по теме или посту (гостю магнит виден
-// на странице); кэшируется — ключ не зависит от юзера
-func resolveInfoHash(kind string, id int) (hash string, err error) {
-	cacheKey := fmt.Sprintf("%s:%d", kind, id)
+// TechString — значения полей одной строкой (для матчинга фильтров)
+func (r Release) TechString() string {
+	parts := make([]string, 0, len(r.Tech))
+	for _, t := range r.Tech {
+		parts = append(parts, t.Name+" "+t.Value)
+	}
+	return strings.Join(parts, " ")
+}
+
+// поля карточки — в порядке страницы; эти не показываем
+var techSkip = map[string]bool{
+	"Время раздачи": true, // служебное
+}
+
+// parseRelease — магнит, постер и описание со страницы темы
+func parseRelease(body string) Release {
+	var r Release
+	if m := magnetRe.FindStringSubmatch(body); m != nil {
+		r.Hash = m[1]
+	}
+	for _, m := range posterRe.FindAllStringSubmatch(body, 6) {
+		u := m[1]
+		bad := strings.Contains(u, "kinopoisk.ru/rating") || strings.Contains(u, "imdb") ||
+			strings.Contains(u, "/channel/") || strings.HasSuffix(strings.ToLower(u), ".gif")
+		if !bad && len(u) > 20 {
+			r.Poster = u
+			break
+		}
+	}
+	// сюжет: полный, многоабзацный, абзацы сохраняем маркером ¶
+	plot := ""
+	if m := plotRe.FindStringSubmatch(body); m != nil {
+		plot = m[1]
+	} else if m := descrRe.FindStringSubmatch(body); m != nil {
+		plot = m[1]
+	}
+	if plot != "" {
+		plot = strings.ReplaceAll(plot, "<br", "¶<br") // абзацы переживают зачистку тегов
+		plot = strings.TrimSpace(spaceRe.ReplaceAllString(tagRe.ReplaceAllString(html.UnescapeString(plot), " "), " "))
+		plot = strings.ReplaceAll(plot, "¶ ", "¶")
+		if len([]rune(plot)) > 2000 {
+			plot = string([]rune(plot)[:2000]) + "…"
+		}
+		r.Descr = plot
+	}
+
+	// техполя — в порядке страницы; сюжет встаёт на своё место среди полей
+	seen := map[string]bool{}
+	for _, m := range techRe.FindAllStringSubmatch(body, 24) {
+		name := strings.TrimSpace(m[1])
+		if techSkip[name] || seen[name] {
+			continue
+		}
+		val := strings.TrimSpace(spaceRe.ReplaceAllString(tagRe.ReplaceAllString(html.UnescapeString(m[2]), " "), " "))
+		if val == "" && name != "Описание" {
+			continue
+		}
+		if name == "Описание" {
+			val = r.Descr // уже полный, с маркерами абзацев
+		} else if len([]rune(val)) > 800 {
+			val = string([]rune(val)[:800]) + "…"
+		}
+		seen[name] = true
+		r.Tech = append(r.Tech, TechField{Name: name, Value: val})
+	}
+
+	// карточка: рейтинг КП (картинкой через проки трекера), ссылки, торрент
+	if m := kpRatingRe.FindStringSubmatch(body); m != nil {
+		r.RatingImg = "https://nnmstatic.win/forum/image.php?link=" + url.QueryEscape(m[1])
+	}
+	if m := kpLinkRe.FindStringSubmatch(body); m != nil {
+		r.KP = m[1]
+	}
+	if m := imdbLinkRe.FindStringSubmatch(body); m != nil {
+		r.IMDb = m[1]
+	}
+	if m := malLinkRe.FindStringSubmatch(body); m != nil {
+		r.MAL = m[1]
+	}
+	if m := torNameRe.FindStringSubmatch(body); m != nil {
+		r.TorName = m[1]
+	}
+	if m := torSizeRe.FindStringSubmatch(body); m != nil {
+		r.TorSize = strings.ReplaceAll(strings.TrimSpace(m[1]), " ", " ")
+	}
+	return r
+}
+
+// resolveRelease — текущая раздача темы (гость). Кэшируется на TTL.
+func resolveRelease(topicID int) (Release, error) {
+	cacheKey := fmt.Sprintf("topic:%d", topicID)
 	cacheMu.Lock()
 	if e, ok := resolveCache[cacheKey]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
 		cacheMu.Unlock()
-		return e.hash, nil
+		return e.rel, nil
 	}
 	cacheMu.Unlock()
 
-	var body, seg string
-	if kind == "topic" {
-		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), "")
-		seg = body
-	} else {
-		body, err = fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?p=%d", nnmBase, id), "")
-		seg = postSegment(body, id)
-		if seg == "" {
-			seg = body
-		}
-	}
+	body, err := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, topicID), "")
 	if err != nil {
-		return "", err
+		return Release{}, err
 	}
 
-	hash = findInfoHash(seg) // пусто = пост без раздачи (обсуждение), кэшируем пусто
+	rel := parseRelease(body)
 
 	cacheMu.Lock()
-	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), hash: hash}
+	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: rel}
 	cacheMu.Unlock()
-	return hash, nil
+	return rel, nil
 }
 
-// magnetLink — магнит с персональными announce юзера: клиент будет аннонсить
-// его ключом, статистика зачтётся ему (механизм тот же, что у TrackerId lostfilm)
-func magnetLink(hash, passkey string) string {
-	trackers := []string{
-		"http://bt02.nnm-club.cc:2710/" + passkey + "/announce",
-		"http://bt.searchtor.to/" + passkey + "/announce",
-		"http://ipv6.bt.searchtor.to/" + passkey + "/announce",
-		"http://bt02.ipv6.nnm-club.cc:2710/" + passkey + "/announce",
-	}
-	s := "magnet:?xt=urn:btih:" + hash
-	for _, t := range trackers {
-		s += "&tr=" + url.QueryEscape(t)
-	}
-	return s
-}
+var (
+	omdbRateRe  = regexp.MustCompile(`"imdbRating":"([0-9.]+?)"`)
+	omdbVotesRe = regexp.MustCompile(`"imdbVotes":"([0-9,]+?)"`)
+)
 
-// topicTitle — «Название :: NNM-Club» из <title> страницы темы
-func topicTitle(id int) (string, error) {
-	body, err := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), "")
+// imdbRating — рейтинг IMDb через OMDb (ключ OMDB_APIKEY, бесплатный);
+// пустой ключ → пустой результат; кэш на TTL
+func imdbRating(tt string) (val, votes string) {
+	if omdbKey == "" {
+		return "", ""
+	}
+	cacheKey := "imdb:" + tt
+	cacheMu.Lock()
+	if e, ok := resolveCache[cacheKey]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
+		cacheMu.Unlock()
+		return e.rel.Hash, e.rel.Descr // рейтинг спрятан в Hash, голоса — в Descr
+	}
+	cacheMu.Unlock()
+
+	req, _ := http.NewRequest("GET", "https://www.omdbapi.com/?i="+tt+"&apikey="+omdbKey, nil)
+	resp, err := nnmClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", ""
 	}
-	m := titleTagRe.FindStringSubmatch(body)
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	body := string(raw)
+	if m := omdbRateRe.FindStringSubmatch(body); m != nil {
+		val = m[1]
+	}
+	if m := omdbVotesRe.FindStringSubmatch(body); m != nil {
+		votes = m[1]
+	}
+
+	cacheMu.Lock()
+	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: Release{Hash: val, Descr: votes}}
+	cacheMu.Unlock()
+	return val, votes
+}
+
+var (
+	malIDRe    = regexp.MustCompile(`myanimelist\.net/anime/(\d+)`)
+	jikanScore = regexp.MustCompile(`"score":([0-9]+(?:\.[0-9]+)?)`)
+	jikanVotes = regexp.MustCompile(`"scored_by":(\d+)`)
+)
+
+// malRating — рейтинг MyAnimeList через Jikan (api.jikan.moe, ключ не нужен;
+// лимит ~3 req/s — нам хватает, кэш на TTL). link — ссылка MAL со страницы
+func malRating(link string) (val, votes string) {
+	m := malIDRe.FindStringSubmatch(link)
 	if m == nil {
-		return "", errors.New("нет заголовка темы")
+		return "", ""
 	}
-	t := html.UnescapeString(m[1])
-	if i := strings.LastIndex(t, "::"); i >= 0 {
-		t = t[:i]
+	id := m[1]
+	cacheKey := "mal:" + id
+	cacheMu.Lock()
+	if e, ok := resolveCache[cacheKey]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
+		cacheMu.Unlock()
+		return e.rel.Hash, e.rel.Descr
 	}
-	return strings.TrimSpace(t), nil
+	cacheMu.Unlock()
+
+	req, _ := http.NewRequest("GET", "https://api.jikan.moe/v4/anime/"+id, nil)
+	resp, err := nnmClient.Do(req)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	body := string(raw)
+	if m := jikanScore.FindStringSubmatch(body); m != nil {
+		val = m[1]
+	}
+	if m := jikanVotes.FindStringSubmatch(body); m != nil {
+		votes = m[1]
+	}
+
+	cacheMu.Lock()
+	resolveCache[cacheKey] = resolveEntry{ts: time.Now(), rel: Release{Hash: val, Descr: votes}}
+	cacheMu.Unlock()
+	return val, votes
+}
+
+// topicInfo — название, постер и id темы (для страницы подписок).
+// Если передан пост (kind=post): достаём тему по частоте ссылок t= на странице
+func topicInfo(kind string, id int) (topicID int, title, poster string, err error) {
+	if kind == "post" {
+		body, ferr := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?p=%d", nnmBase, id), "")
+		if ferr != nil {
+			return 0, "", "", ferr
+		}
+		if strings.TrimSpace(body) == "" {
+			return 0, "", "", errDeepPost
+		}
+		// своя тема встречается на странице чаще всего (пагинация, заголовок)
+		counts := map[int]int{}
+		for _, m := range postSelfRef.FindAllStringSubmatch(body, -1) {
+			counts[atoiDefault(m[1])]++
+		}
+		best, bestN := 0, 0
+		for t, n := range counts {
+			if n > bestN {
+				best, bestN = t, n
+			}
+		}
+		if best == 0 {
+			return 0, "", "", errDeepPost
+		}
+		id = best
+	}
+
+	body, ferr := fetchNNM(fmt.Sprintf("%s/forum/viewtopic.php?t=%d", nnmBase, id), "")
+	if ferr != nil {
+		return 0, "", "", ferr
+	}
+	if m := titleTagRe.FindStringSubmatch(body); m != nil {
+		t := html.UnescapeString(m[1])
+		if i := strings.LastIndex(t, "::"); i >= 0 {
+			t = t[:i]
+		}
+		title = strings.TrimSpace(t)
+	}
+	poster = parseRelease(body).Poster
+	return id, title, poster, nil
+}
+
+var errDeepPost = errors.New("пост не открывается без раздела: откройте тему целиком и скопируйте ссылку с t=…")
+
+// magnetLink — магнит ленты: только btih, без announce. На nnm ключи минтятся
+// сайтом на каждое скачивание (в магнит/.torrent залогиненного), константный
+// ключ ленты трекер не принимает — пиры клиент находит через DHT/PEX
+func magnetLink(hash string) string {
+	return "magnet:?xt=urn:btih:" + hash
+}
+
+// ---------- топ трекера (популярное за N дней)
+
+// корневые разделы «видео» на NNMClub (как в tracker-top: мусор отсекаем)
+var nnmVideoRoots = map[int]bool{
+	216: true, 318: true, 220: true, 224: true, 1311: true, 256: true, 264: true, // кино
+	1219: true, 768: true, 769: true, 713: true, // сериалы
+	576: true,                       // документалистика
+	724: true,                       // детское видео/мультфильмы
+	620: true, 624: true, 628: true, // аниме
+}
+
+var (
+	trTdRe     = regexp.MustCompile(`(?s)<td[^>]*>(.*?)</td>`)
+	trForumRe  = regexp.MustCompile(`href="tracker\.php\?f=(\d+)"[^>]*>([^<]+)`)
+	trTitleBRe = regexp.MustCompile(`(?s)href="viewtopic\.php\?t=\d+"[^>]*><b>(.*?)</b>`)
+	trAddedRe  = regexp.MustCompile(`(\d{9,10})`)
+	trOptionRe = regexp.MustCompile(`<option[^>]+value="(\d+)"[^>]*>([^<]*)</option>`)
+)
+
+type topRow struct {
+	TopicID int
+	Title   string
+	ForumID int
+	Added   int64 // unix
+}
+
+// parseTrackerTop — строки топа трекера (как parseNNM в tracker-top, только нужное)
+func parseTrackerTop(body string) []topRow {
+	var out []topRow
+	for _, seg := range strings.Split(body, "</tr>") {
+		if !strings.Contains(seg, "viewtopic.php?t=") || !trTitleBRe.MatchString(seg) {
+			continue
+		}
+		cells := trTdRe.FindAllStringSubmatch(seg, -1)
+		if len(cells) < 9 {
+			continue
+		}
+
+		idm := linkTopicRe.FindStringSubmatch(seg)
+		if idm == nil {
+			continue
+		}
+		row := topRow{TopicID: atoiDefault(idm[1])}
+		if fm := trForumRe.FindStringSubmatch(cells[1][1]); fm != nil {
+			row.ForumID = atoiDefault(fm[1])
+		}
+		// последняя ячейка: завершённость + время добавления
+		last := cells[len(cells)-1][1]
+		if am := trAddedRe.FindStringSubmatch(last); am != nil {
+			row.Added = int64(atoiDefault(am[1]))
+		}
+		if tm := trTitleBRe.FindStringSubmatch(cells[2][1]); tm != nil {
+			row.Title = html.UnescapeString(stripTags(tm[1]))
+		}
+		if row.TopicID > 0 && row.Title != "" {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// nnmVideoSubtree — поддерево видео-разделов по списку категорий со страницы
+// (топ-уровень без "|-", подфорумы с ним; берём всё под видео-корнями)
+func nnmVideoSubtree(body string) map[int]bool {
+	return subtreeFor(body, nnmVideoRoots)
+}
+
+// Category — верхний уровень разделов трекера (для галок настройки топа)
+type Category struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Primary bool   `json:"primary"`
+}
+
+// categorySelect — содержимое селекта разделов трекера (<select name="f[]">);
+// на странице есть и другие селекты (сортировка, «золотые раздачи», колонки) —
+// их опции мусорные и к разделам не относятся
+var catSelRe = regexp.MustCompile(`(?s)<select[^>]*name="f\[\]"[^>]*>(.*?)</select>`)
+
+func categorySelect(body string) string {
+	return catSelRe.FindStringSubmatch(body)[1]
+}
+
+// parseTrackerCategories — верхний уровень: опции без "|-";
+// Primary = видео и «горячие новинки» — в UI показываются первыми
+func parseTrackerCategories(body string) []Category {
+	var out []Category
+	for _, m := range trOptionRe.FindAllStringSubmatch(categorySelect(body), -1) {
+		id := atoiDefault(m[1])
+		text := html.UnescapeString(m[2])
+		if !strings.Contains(text, "|-") {
+			name := strings.TrimSpace(strings.ReplaceAll(text, " ", " "))
+			out = append(out, Category{
+				ID:      id,
+				Name:    name,
+				Primary: nnmVideoRoots[id] || strings.Contains(name, "Горячие новинки"),
+			})
+		}
+	}
+	return out
+}
+
+// leafRoots — каждый подфорум → его корневой раздел; корневая лента rss.php
+// пуста, «Лента разделов» подписывается листьями, группируя их по корню
+func leafRoots(body string) map[int]Category {
+	out := map[int]Category{}
+	var cur Category
+	for _, m := range trOptionRe.FindAllStringSubmatch(categorySelect(body), -1) {
+		id := atoiDefault(m[1])
+		text := strings.TrimSpace(strings.ReplaceAll(html.UnescapeString(m[2]), " ", " "))
+		if !strings.Contains(text, "|-") {
+			cur = Category{ID: id, Name: text}
+			continue
+		}
+		if cur.ID != 0 && id != cur.ID {
+			out[id] = cur
+		}
+	}
+	return out
+}
+
+// leafNames — id → имя всех разделов селекта (для названий подписок-листьев)
+func leafNames(body string) map[int]string {
+	out := map[int]string{}
+	for _, m := range trOptionRe.FindAllStringSubmatch(categorySelect(body), -1) {
+		out[atoiDefault(m[1])] = strings.TrimSpace(strings.ReplaceAll(html.UnescapeString(m[2]), " ", " "))
+	}
+	return out
+}
+
+// subtreeFor — все разделы под выбранными корнями (корень + его подфорумы
+// с "|-" до следующего корня)
+func subtreeFor(body string, roots map[int]bool) map[int]bool {
+	ids := map[int]bool{}
+	inRoot := false
+	for _, m := range trOptionRe.FindAllStringSubmatch(categorySelect(body), -1) {
+		id := atoiDefault(m[1])
+		text := html.UnescapeString(m[2])
+		if !strings.Contains(text, "|-") {
+			inRoot = roots[id]
+		}
+		if inRoot {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+// ---------- дедуп топа по фильму
+
+var (
+	filmYearRe  = regexp.MustCompile(`\((\d{4})`)
+	filmBaseRe  = regexp.MustCompile(`[(\[]`)
+	filmQ2160Re = regexp.MustCompile(`(?i)2160p?|4k|uhd`)
+	filmQ1080Re = regexp.MustCompile(`(?i)1080p?i?`)
+	filmQ720Re  = regexp.MustCompile(`(?i)720p?i?`)
+)
+
+// filmKey — «Название / Original (Год) …» → ключ фильма: разные темы одной
+// раздачи (720p/1080p/4K, варианты перевода названия) схлопываются
+func filmKey(title string) string {
+	base := filmBaseRe.Split(title, 2)[0]
+
+	var parts []string
+	for _, p := range strings.Split(base, "/") {
+		if p = strings.TrimSpace(strings.Trim(p, " -")); p != "" {
+			parts = append(parts, p)
+		}
+	}
+
+	ru, orig := "", ""
+	if len(parts) > 0 {
+		ru = parts[0]
+	}
+	if len(parts) > 1 {
+		orig = parts[len(parts)-1]
+	}
+
+	year := ""
+	if m := filmYearRe.FindStringSubmatch(title); m != nil {
+		year = m[1]
+	}
+
+	return strings.ToLower(ru+"|"+orig) + "|" + year
+}
+
+// filmQualityRank — sd=0 < 720 < 1080 < 2160
+func filmQualityRank(title string) int {
+	switch {
+	case filmQ2160Re.MatchString(title):
+		return 3
+	case filmQ1080Re.MatchString(title):
+		return 2
+	case filmQ720Re.MatchString(title):
+		return 1
+	}
+	return 0
+}
+
+// dedupeTopRows — один фильм = одна тема: лучшая по качеству,
+// при равенстве — самая свежая («рядом или через одну» больше не будет)
+func dedupeTopRows(rows []topRow) []topRow {
+	type slot struct {
+		row  topRow
+		rank int
+	}
+	best := map[string]*slot{}
+	for _, r := range rows {
+		key := filmKey(r.Title)
+		rank := filmQualityRank(r.Title)
+		if s, ok := best[key]; !ok || rank > s.rank || (rank == s.rank && r.Added > s.row.Added) {
+			if !ok {
+				best[key] = &slot{}
+			}
+			best[key].row = r
+			best[key].rank = rank
+		}
+	}
+	out := make([]topRow, 0, len(best))
+	for _, s := range best {
+		out = append(out, s.row)
+	}
+	return out
+}
+
+// hasCyrillic — есть ли в строке русские буквы
+func hasCyrillic(s string) bool {
+	for _, r := range s {
+		if (r >= 'А' && r <= 'я') || r == 'Ё' || r == 'ё' {
+			return true
+		}
+	}
+	return false
+}
+
+func stripTags(s string) string {
+	return strings.TrimSpace(spaceRe.ReplaceAllString(tagRe.ReplaceAllString(s, " "), " "))
+}
+
+// OptVal — значение опции-фильтра трекера
+type OptVal struct {
+	Value int    `json:"value"`
+	Name  string `json:"name"`
+}
+
+var selByNameRe = regexp.MustCompile(`(?s)<select[^>]*name="([a-z\[\]]+)"[^>]*>(.*?)</select>`)
+
+// trackerOptions — опции селектов страницы трекера по имени; полезны как
+// фильтры (sds = тип раздачи: золотые/серебряные…, tm = окно времени)
+func trackerOptions(body, name string) []OptVal {
+	var out []OptVal
+	for _, m := range selByNameRe.FindAllStringSubmatch(body, -1) {
+		if m[1] != name {
+			continue
+		}
+		for _, o := range trOptionRe.FindAllStringSubmatch(m[2], -1) {
+			v := atoiDefault(strings.ReplaceAll(o[1], "[]", ""))
+			if v < 0 {
+				continue // «не учитывать» и прочие отключенные значения
+			}
+			name := strings.ReplaceAll(html.UnescapeString(o[2]), " ", " ")
+			out = append(out, OptVal{Value: v, Name: stripTags(name)})
+		}
+	}
+	return out
 }
 
 // ---------- подписки: URL → вид + id
@@ -252,7 +744,7 @@ var (
 // parseNNMURL — из вставленной человеком ссылки (тема, пост или раздел трекера)
 func parseNNMURL(u string) (kind string, id int) {
 	if m := urlPostRe.FindStringSubmatch(u); m != nil {
-		return "topic", atoiDefault(m[1]) // ссылка на пост внутри темы → тема
+		return "post", atoiDefault(m[1]) // пост сконвертируем в тему при добавлении
 	}
 	if m := urlTopicRe.FindStringSubmatch(u); m != nil {
 		return "topic", atoiDefault(m[1])
@@ -270,7 +762,6 @@ func subRSSURL(s *Sub) string {
 	}
 	return fmt.Sprintf("%s/forum/rss.php?topic=%d&c=50", nnmBase, s.NNMID) // новые посты темы
 }
-
 
 func atoiDefault(s string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(s))
