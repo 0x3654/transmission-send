@@ -844,7 +844,7 @@
             param: {
                 name: 'top_hide_watched',
                 type: 'trigger',
-                default: false
+                default: true // «не хочу видеть просмотренные» — базовое ожидание
             },
             field: {
                 name: T('settings_hide_watched'),

@@ -161,10 +161,16 @@ func TestDedupeFilms(t *testing.T) {
 		{Ru: "Холоп 3", Year: 2026, Quality: "1080", Seeders: 1698, Size: 8 << 30},
 		{Ru: "Холоп 3", Year: 2026, Quality: "2160", Seeders: 100, Size: 30 << 30, Dub: true},
 		{Ru: "Мятеж", Orig: "Mutiny", Year: 2026, Quality: "1080", Seeders: 675},
+		// один фильм, разные написания orig (жivoй кейс rutor)
+		{Ru: "Бэтмен: Падение рыцаря. Часть первая", Orig: "Batman: Knightfall, Part 1", Year: 2026, Quality: "2160", Seeders: 53},
+		{Ru: "Бэтмен: Падение рыцаря. Часть первая", Orig: "Batman: Knightfall - Part 1: Knight", Year: 2026, Quality: "1080", Seeders: 19},
+		// ru без перевода + с переводом — один фильм
+		{Ru: "Вышка", Year: 2026, Quality: "1080", Seeders: 40},
+		{Ru: "Вышка", Orig: "The Fall", Year: 2026, Quality: "2160", Seeders: 10},
 	}
 
 	out := dedupeFilms(items)
-	check(t, "дубли схлопнуты", len(out) == 2, len(out))
+	check(t, "дубли схлопнуты", len(out) == 4, len(out)) // Холоп 3, Мятеж, Бэтмен, Вышка
 
 	var holop *Item
 	for i := range out {
@@ -176,6 +182,15 @@ func TestDedupeFilms(t *testing.T) {
 	check(t, "представитель — лучшая раздача", holop != nil && holop.Quality == "2160", holop.Quality)
 	check(t, "размер лучшей раздачи", holop != nil && holop.Size == 30<<30, holop.Size)
 	check(t, "дубляж не потерян", holop != nil && holop.Dub)
+
+	for _, it := range out {
+		if it.Ru == "Бэтмен: Падение рыцаря. Часть первая" {
+			check(t, "бэтмен один, лучший качеством", it.Quality == "2160" && it.Seeders == 72, it.Quality, it.Seeders)
+		}
+		if it.Ru == "Вышка" {
+			check(t, "вышка одна (ru+год, orig игнорируется)", it.Quality == "2160" && it.Seeders == 50, it.Quality, it.Seeders)
+		}
+	}
 }
 
 func TestCamAndJunk(t *testing.T) {

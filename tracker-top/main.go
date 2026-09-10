@@ -141,9 +141,11 @@ func filterItems(items []Item, minq, audio string) []Item {
 	return out
 }
 
-// dedupeFilms — дубликаты раздач одного фильма (одинаковое ru/orig + год) схлопывает
-// в одну позицию: сиды суммируются, представителем становится лучшая раздача
-// (максимальное качество, затем размер). Мы отдаём фильмы для поиска, а не ленту раздач.
+// dedupeFilms — дубликаты раздач одного фильма схлопывает в одну позицию:
+// сиды суммируются, представителем становится лучшая раздача (не-камрип,
+// максимальное качество, затем размер). Ключ — ru + год: варианты написания
+// оригинального названия («Knightfall, Part 1» vs «Knightfall - Part 1»)
+// и отсутствующий/добавленный перевод не должны плодить дубли.
 func dedupeFilms(items []Item) []Item {
 	type slot struct {
 		it Item
@@ -153,7 +155,7 @@ func dedupeFilms(items []Item) []Item {
 	byKey := map[string]*slot{}
 
 	for _, it := range items {
-		key := strings.ToLower(it.Ru+"|"+it.Orig) + "|" + strconv.Itoa(it.Year)
+		key := strings.ToLower(it.Ru) + "|" + strconv.Itoa(it.Year)
 		if s, ok := byKey[key]; ok {
 			s.it.Seeders += it.Seeders
 			s.it.Leechers += it.Leechers

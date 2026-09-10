@@ -114,7 +114,8 @@ console.log('✓ регистрация: 2 экрана, 3 пункта меню
     comp.create()
     const p = calls.tmdb[0].params
     assert.ok(p['primary_release_date.gte'], 'дата окна подставлена')
-    assert.strictEqual(Math.round((Date.now() - new Date(p['primary_release_date.gte'])) / 86400000), 14, 'окно ~14 дней')
+    const days = (Date.now() - new Date(p['primary_release_date.gte'] + 'T00:00:00Z')) / 86400000
+    assert.ok(days >= 13.9 && days <= 15.1, 'окно ~14 дней: ' + days)
 }
 console.log('✓ варианты 14/30 дней: окно дат считается при открытии')
 
