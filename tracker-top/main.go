@@ -346,7 +346,7 @@ func warmCache() {
 	}
 	for {
 		for _, k := range keys {
-			if _, _, err := getTop(k[0], "video", 2, true, "", k[1]); err != nil {
+			if _, _, err := getTop(k[0], "video", 2, true, "", "1", k[1]); err != nil {
 				log.Printf("warm %s/%s: %v", k[0], k[1], err)
 			}
 		}
