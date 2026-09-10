@@ -168,17 +168,26 @@ assert.ok(!calls.urls[calls.urls.length - 1].includes('voice='))
 assert.ok(calls.urls[calls.urls.length - 1].includes('sort=top') && calls.urls[calls.urls.length - 1].includes('pages=6'))
 console.log('✓ озвучки выключены; классика: sort=top, pages=6')
 
-// --- 6. «скрыть просмотренные»: только наши экраны, по истории Lampa
+// --- 6. «скрыть просмотренные»: история просмотров/просмотрено/смотрю/брошено,
+// двойной ключ: id и «название|год» (ловит tv/movie расхождения)
 state.fields.top_hide_watched = 'true'
-state.favorite = { history: [{ id: 100, title: 'Холоп 3' }], viewed: [{ id: 200, name: 'Сериал' }] }
+state.favorite = {
+    history: [{ id: 100, title: 'Холоп 3', release_date: '2026-01-01' }],
+    viewed:  [{ id: 200, name: 'Сериал' }],
+    look:    [{ id: 400, name: 'Minions & Monsters', first_air_date: '2026-07-01' }], // сериал в «Смотрю»
+    thrown:  [{ id: 500, title: 'Брошенное', release_date: '2025-01-01' }]
+}
 state.tmdbResponse = { results: [
     { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 },
-    { id: 300, title: 'Другой', release_date: '2026-01-01', media_type: 'movie', popularity: 50 }
+    { id: 300, title: 'Другой', release_date: '2026-01-01', media_type: 'movie', popularity: 50 },
+    // сматчился как ФИЛЬМ, а в «Смотрю» лежит сериал — должен скрыться по имени
+    { id: 301, title: 'Minions & Monsters', release_date: '2026-07-01', media_type: 'movie', popularity: 60 },
+    { id: 302, title: 'Брошенное', release_date: '2025-01-01', media_type: 'movie', popularity: 40 }
 ] }
 comp = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
 comp.create()
-assert.deepStrictEqual(comp.built.results.map(r => r.id), [300], 'просмотренный вырезан')
-console.log('✓ «скрыть просмотренные»: history+viewed вырезаются из «Топа»')
+assert.deepStrictEqual(comp.built.results.map(r => r.id), [300], 'history/viewed/look/thrown и tv-movie кейс вырезаны')
+console.log('✓ «скрыть просмотренные»: 4 источника + имя-ключ ловит tv/movie')
 
 // --- 7. «Мой фильтр»: запоминание + пресеты
 state.storage.top_last_filter = null

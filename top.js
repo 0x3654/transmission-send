@@ -265,10 +265,14 @@
 
         //---------- «скрыть просмотренные»: история/просмотрено Lampa, только в наших экранах
 
+        // «История просмотров» + «Просмотрено» (+ «Смотрю»/«Брошено» — тоже
+        // «уже в орбите»). Ключей два: id и нормализованное «название|год» —
+        // второй ловит расхождения типа карточки (история хранит сериал,
+        // поиск сматчил фильм) и варианты названий
         function watchedSet(){
             var set = {}
 
-            ;['history', 'viewed'].forEach(function(type){
+            ;['history', 'viewed', 'look', 'thrown'].forEach(function(type){
                 var items = []
 
                 try{
@@ -277,7 +281,14 @@
                 catch(e){}
 
                 items.forEach(function(card){
-                    if(card && card.id != null) set[(card.name ? 'tv' : 'movie') + ':' + card.id] = true
+                    if(!card || card.id == null) return
+
+                    set[(card.name ? 'tv' : 'movie') + ':' + card.id] = true
+
+                    var title = card.title || card.name || ''
+                    var year  = ((card.release_date || card.first_air_date || '') + '').slice(0, 4)
+
+                    if(title) set[normTitle(title) + '|' + year] = true
                 })
             })
 
@@ -292,7 +303,14 @@
                     var watched = watchedSet()
 
                     data.results = data.results.filter(function(el){
-                        return !watched[(el.name ? 'tv' : 'movie') + ':' + el.id]
+                        if(watched[(el.name ? 'tv' : 'movie') + ':' + el.id]) return false
+
+                        var title = el.title || el.name || ''
+                        var year  = ((el.release_date || el.first_air_date || '') + '').slice(0, 4)
+
+                        if(title && watched[normTitle(title) + '|' + year]) return false
+
+                        return true
                     })
                 }
 
