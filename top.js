@@ -213,7 +213,7 @@
 
             Lampa.Activity.push({
                 url: '',
-                title: v.title,
+                title: 'Топ · TMDB',
                 component: 'top_screen',
                 page: 1,
                 top_method: v.method,
@@ -577,7 +577,7 @@
             try{
                 Lampa.Activity.replace({
                     url: '',
-                    title: homeVariant.title,
+                    title: 'Топ · TMDB',
                     component: 'top_screen',
                     page: 1,
                     top_method: homeVariant.method,

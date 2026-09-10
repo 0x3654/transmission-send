@@ -122,6 +122,7 @@ console.log('✓ варианты 14/30 дней: окно дат считает
 // --- 3. «Топ»: меню пушит последний вариант, пагинация
 state.storage.top_last_variant = '7'
 calls.menu[0].cb()
+assert.strictEqual(calls.push[calls.push.length - 1].title, 'Топ · TMDB', 'заголовок экрана — как в меню')
 assert.strictEqual(calls.push[calls.push.length - 1].top_method, 'discover/movie')
 let comp = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
 state.tmdbResponse = { results: [{ id: 1, title: 'A', media_type: 'movie' }], total_pages: 7 }
