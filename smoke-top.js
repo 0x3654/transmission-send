@@ -14,7 +14,8 @@ const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null, f
 function InteractionCategory(object){
     this.object = object
     this.activity = { loader(){}, toggle(){} }
-    this.build = (data) => { this.built = data }
+    this.append = (data) => { this.built = (this.built || []).concat((data && data.results) || []) }
+    this.build = (data) => { this.append(data) } // как в реальном классе: build зовёт append
     this.empty = () => { this.emptied = true }
 }
 
@@ -157,8 +158,8 @@ comp.create()
     const voice = decodeURIComponent((url.match(/voice=([^&]*)/) || [])[1] || '')
     assert.strictEqual(voice, 'Дубляж,LostFilm', 'две озвучки одной строкой')
 }
-assert.strictEqual(comp.built.results.length, 1, 'софт отсеян матчингом')
-assert.strictEqual(comp.built.results[0].quality, '4K', 'бейдж качества на карточке')
+assert.strictEqual(comp.built.length, 1, 'софт отсеян матчингом')
+assert.strictEqual(comp.built[0].quality, '4K', 'бейдж качества на карточке')
 console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
 
 // --- 5. озвучки выключены → voice в запросе нет
@@ -188,7 +189,15 @@ state.tmdbResponse = { results: [
 ] }
 comp = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
 comp.create()
-assert.deepStrictEqual(comp.built.results.map(r => r.id), [300], 'history/viewed/look/thrown и tv-movie кейс вырезаны')
+assert.deepStrictEqual(comp.built.map(r => r.id), [300], 'history/viewed/look/thrown и tv-movie кейс вырезаны')
+
+// страница 2+ приходит через append напрямую — фильтр обязан работать и там
+comp.append({ results: [
+    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 302, title: 'Второй странице тоже фильтр', release_date: '2026-01-01', media_type: 'movie' }
+] }, true)
+assert.ok(comp.built.every(r => r.id !== 100), 'просмотренный не пролез со страницы 2')
+assert.ok(comp.built.some(r => r.id === 302), 'новый со страницы 2 добавлен')
 console.log('✓ «скрыть просмотренные»: 4 источника + имя-ключ ловит tv/movie')
 
 // --- 8. «Топ» вместо главной (отдельный контекст с включённым тумблером)

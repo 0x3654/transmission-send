@@ -332,10 +332,13 @@
             return set
         }
 
+        // фильтр вешается на append: первая страница идёт через build→append,
+        // а страницы 2+ (пагинация «Топ · TMDB» листается бесконечно) — напрямую
+        // через append, и раньше просмотренные пролезали именно оттуда
         function hideWatched(comp){
-            var origBuild = comp.build.bind(comp)
+            var origAppend = comp.append.bind(comp)
 
-            comp.build = function(data){
+            comp.append = function(data, append){
                 if(String(Lampa.Storage.field('top_hide_watched')) === 'true' && data && data.results){
                     var watched = watchedSet()
 
@@ -351,7 +354,7 @@
                     })
                 }
 
-                return origBuild(data)
+                return origAppend(data, append)
             }
         }
 
