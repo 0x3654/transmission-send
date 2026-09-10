@@ -266,7 +266,8 @@
         function serverUrl(){
             var url = (Lampa.Storage.field('top_server_url') || '').trim()
 
-            if(url && !/^https?:\/\//i.test(url)) url = 'http://' + url
+            // без схемы считаем https: PWA (https) молча блокирует http-запросы
+            if(url && !/^https?:\/\//i.test(url)) url = 'https://' + url
 
             return url.replace(/\/+$/, '')
         }
@@ -605,7 +606,7 @@
                 type: 'input',
                 values: 'string', // обязательный маркер для input в Lampa
                 default: '',
-                placeholder: 'http://192.168.1.2:8355'
+                placeholder: 'https://micro-tracker.koi-uaru.ts.net'
             },
             field: {
                 name: T('settings_server'),
