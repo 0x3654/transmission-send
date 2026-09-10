@@ -311,3 +311,18 @@ func TestFilterRussian(t *testing.T) {
 	}
 	check(t, "ru=0: всё на месте", len(filterRussian(items, "0")) == 5)
 }
+
+func TestFindRelease(t *testing.T) {
+	// findItems на живых снимках поиска: NNM (cp1251) + rutor (utf-8)
+	nnm := parseNNM(fixture(t, "nnm_search.html"))
+	rut := parseRutor(fixture(t, "rutor_search.html"))
+	check(t, "nnm search rows", len(nnm) > 0, len(nnm))
+	check(t, "rutor search rows", len(rut) > 25, len(rut))
+	hits := 0
+	for _, it := range append(append([]Item{}, nnm...), rut...) {
+		if it.Ru == "Холоп 3" || it.Ru == "Холоп" {
+			hits++
+		}
+	}
+	check(t, "холоп найден в обеих выдачах", hits >= 2, hits)
+}

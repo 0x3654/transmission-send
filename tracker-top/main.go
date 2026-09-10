@@ -366,6 +366,23 @@ func main() {
 		writeJSON(w, 200, map[string]any{"ok": true, "rev": rev, "nnm": nnmBase, "rutor": rutorBase})
 	})
 
+	// есть ли у фильма раздача под наши фильтры — для «Топ · TMDB»
+	mux.HandleFunc("GET /find", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		query := param(q, "query", "")
+		if query == "" {
+			writeJSON(w, 400, map[string]string{"error": "query required"})
+			return
+		}
+		year, _ := strconv.Atoi(param(q, "year", "0"))
+
+		it, found := findRelease(query, year, param(q, "type", "movie"),
+			param(q, "minq", ""), param(q, "voice", ""),
+			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0")
+
+		writeJSON(w, 200, map[string]any{"found": found, "item": it})
+	})
+
 	mux.HandleFunc("/top", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		src := param(q, "src", "both")

@@ -9,7 +9,7 @@ const source = fs.readFileSync(__dirname + '/top.js', 'utf8')
 const calls = { menu: [], components: {}, params: [], push: [], replace: [], selects: [], noty: [],
                 settings: [], tmdb: [], urls: [], inputs: [] }
 const listeners = {}
-const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null, favorite: {} }
+const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null, findJson: null, favorite: {} }
 
 function InteractionCategory(object){
     this.object = object
@@ -23,7 +23,11 @@ function Reguest(){
     this.timeout = () => {}
     this.silent = (url, ok, fail) => {
         calls.urls.push(url)
-        if(state.serverJson) ok(state.serverJson)
+        if(url.includes('/find')) {
+            if(state.findJson) ok(state.findJson)
+            else fail({})
+        }
+        else if(state.serverJson) ok(state.serverJson)
         else fail({})
     }
 }
@@ -98,7 +102,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
 assert.strictEqual(calls.menu.length, 2)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
-    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_no_cam'])
+    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_trackers_only', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
 {
     const sel = calls.params[2].param.values
@@ -133,6 +137,47 @@ comp.nextPageReuest({ page: 3 }, (json) => { resolved = json }, () => {})
 assert.strictEqual(calls.tmdb[calls.tmdb.length - 1].params.page, 3)
 assert.strictEqual(resolved.results[0].id, 1)
 console.log('✓ TopScreen: последний вариант из Storage + пагинация')
+
+// --- 3b. «Топ · TMDB»: карточки без раздачи скрываются (/find)
+state.fields.top_server_url = 'http://10.1.1.1:8355'
+state.fields.top_trackers_only = 'true'
+state.fields.top_min_quality = 'any'
+state.fields.top_no_cam = 'true'
+state.fields.top_russian_only = 'true'
+state.fields.top_voice_1 = 'any'
+state.fields.top_voice_2 = 'any'
+state.tmdbResponse = { results: [
+    { id: 1, title: 'Есть раздача', original_title: 'With Release', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' }
+], total_pages: 1 }
+state.findJson = { found: true } // оба найдены…
+{
+    const c2 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c2.create()
+    assert.strictEqual(c2.built.length, 2, 'обе карточки на месте')
+    assert.ok(calls.urls.some(u => u.includes('/find?query=With+Release') || u.includes('/find?query=With%20Release')), 'запрос /find с оригинальным названием')
+}
+state.findJson = { found: false } // …потом ничего не найдено
+{
+    const c3 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c3.create()
+    assert.strictEqual(c3.built.length, 0, 'карточки без раздачи скрыты')
+}
+// тумблер выключен — /find не зовётся (и восстанавливаем общий объект-стаб)
+state.fields.top_trackers_only = 'false'
+state.tmdbResponse = { results: [
+    { id: 1, title: 'Есть раздача', original_title: 'With Release', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' }
+], total_pages: 1 }
+{
+    const n0 = calls.urls.length
+    const c4 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c4.create()
+    assert.strictEqual(c4.built.length, 2)
+    assert.strictEqual(calls.urls.length, n0, 'без тумблера /find не зовётся')
+}
+state.fields.top_trackers_only = 'true'
+console.log('✓ «Только с раздачами»: /find фильтрует карточки, без тумблера не мешает')
 
 // --- 4. «Топ трекеров»: качество + ДВЕ озвучки + CAM в запросе
 state.fields.top_server_url = 'http://10.1.1.1:8355'
@@ -174,6 +219,7 @@ console.log('✓ озвучки выключены; классика: sort=top, 
 // --- 6. «скрыть просмотренные»: история просмотров/просмотрено/смотрю/брошено,
 // двойной ключ: id и «название|год» (ловит tv/movie расхождения)
 state.fields.top_hide_watched = 'true'
+state.fields.top_trackers_only = 'false' // этот блок — про просмотренных, не про раздачи
 state.favorite = {
     history: [{ id: 100, title: 'Холоп 3', release_date: '2026-01-01' }],
     viewed:  [{ id: 200, name: 'Сериал' }],
@@ -198,6 +244,7 @@ comp.append({ results: [
 ] }, true)
 assert.ok(comp.built.every(r => r.id !== 100), 'просмотренный не пролез со страницы 2')
 assert.ok(comp.built.some(r => r.id === 302), 'новый со страницы 2 добавлен')
+state.fields.top_trackers_only = 'true'
 console.log('✓ «скрыть просмотренные»: 4 источника + имя-ключ ловит tv/movie')
 
 // --- 8. «Топ» вместо главной (отдельный контекст с включённым тумблером)

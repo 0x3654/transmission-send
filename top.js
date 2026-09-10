@@ -73,6 +73,8 @@
             top_settings_no_cam:   { ru: 'Скрывать CAM/TS',        en: 'Hide CAM/TS' },
             top_settings_russian_only: { ru: 'Только русские названия', en: 'Russian titles only' },
             top_settings_russian_only_desc: { ru: 'скрывать раздачи совсем без русских букв в названии', en: 'hide releases with no cyrillic in title' },
+            top_settings_trackers_only: { ru: 'Только с раздачами', en: 'With releases only' },
+            top_settings_trackers_only_desc: { ru: 'в «Топе · TMDB» показывать только фильмы, у которых на трекерах есть раздача под наши фильтры', en: 'show only films with a matching tracker release' },
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
             top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
             top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
@@ -225,8 +227,40 @@
 
         function TopScreen(object){
             var comp = new Lampa.InteractionCategory(object)
+            var net  = new Lampa.Reguest()
 
             hideWatched(comp)
+
+            // есть ли у карточки раздача на трекерах под наши фильтры
+            function findByTrackers(el, cb){
+                var base  = serverUrl()
+                var query = el.original_title || el.original_name || el.title || el.name || ''
+
+                if(!base || !query) return cb(el)
+
+                net.timeout(30000)
+
+                net.silent(base + '/find?query=' + encodeURIComponent(query) +
+                    '&year=' + ((el.release_date || el.first_air_date || '') + '').slice(0, 4) +
+                    '&type=' + (el.name ? 'tv' : 'movie') + filtersParams(),
+                function(r){
+                    cb(r && r.found ? el : null)
+                }, function(){
+                    cb(el) // сервер недоступен — карточку не теряем
+                })
+            }
+
+            function filterByTrackers(json, cb){
+                if(String(Lampa.Storage.field('top_trackers_only')) !== 'true' || !json.results || !json.results.length){
+                    return cb()
+                }
+
+                mapLimit(json.results, 4, findByTrackers, function(kept){
+                    json.results = kept.filter(Boolean)
+
+                    cb()
+                })
+            }
 
             function load(page, ok, fail){
                 var params = { page: page }
@@ -235,7 +269,9 @@
                     for(var key in object.top_params) params[key] = object.top_params[key]
                 }
 
-                Lampa.Api.sources.tmdb.get(object.top_method, params, ok, fail)
+                Lampa.Api.sources.tmdb.get(object.top_method, params, function(json){
+                    filterByTrackers(json, function(){ ok(json) })
+                }, fail)
             }
 
             comp.create = function(){
@@ -254,7 +290,8 @@
                         title: T('variants') + ': ' + cur.title,
                         variants: VARIANTS
                     },
-                    { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' }
+                    { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
+                    { title: T('settings_trackers_only') + ': ' + yesNo('top_trackers_only'), toggle: 'top_trackers_only' }
                 ])
             }
 
@@ -270,6 +307,27 @@
             if(url && !/^https?:\/\//i.test(url)) url = 'https://' + url
 
             return url.replace(/\/+$/, '')
+        }
+
+        // общие параметры фильтров (для /top и /find)
+        function filtersParams(){
+            var field2 = function(name){ return String(Lampa.Storage.field(name)) }
+            var minq  = field2('top_min_quality')
+            var junk  = field2('top_no_cam') === 'false' ? '0' : '1'
+            var ru    = field2('top_russian_only') === 'false' ? '0' : '1'
+
+            var voices = []
+
+            ;['top_voice_1', 'top_voice_2'].forEach(function(name){
+                var v = field2(name)
+
+                if(v && v !== 'any' && voices.indexOf(v) === -1) voices.push(v)
+            })
+
+            if(minq === 'any' || minq === 'null' || minq === 'undefined') minq = ''
+
+            return (minq ? '&minq=' + minq : '') + '&junk=' + junk + '&ru=' + ru +
+                (voices.length ? '&voice=' + encodeURIComponent(voices.join(',')) : '')
         }
 
         // строка запроса из настроек плагина
@@ -702,6 +760,19 @@
             field: {
                 name: T('settings_russian_only'),
                 description: T('settings_russian_only_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_trackers_only',
+                type: 'trigger',
+                default: true
+            },
+            field: {
+                name: T('settings_trackers_only'),
+                description: T('settings_trackers_only_desc')
             }
         })
 

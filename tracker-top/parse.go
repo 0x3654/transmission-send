@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -309,6 +312,114 @@ func voiceOf(title string) string {
 
 func atoiDefault(s string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(s))
+	return n
+}
+
+// ---------- поиск раздачи по названию (для «Топ · TMDB»: есть ли раздача под наши фильтры)
+
+func cp1251Escape(s string) string {
+	enc, err := charmap.Windows1251.NewEncoder().String(s)
+	if err != nil {
+		return url.QueryEscape(s)
+	}
+	return url.QueryEscape(enc)
+}
+
+// fetchPost — форма urlencoded (поиск NNM)
+func fetchPost(u, form string) (string, error) {
+	req, err := http.NewRequest("POST", u, strings.NewReader(form))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if utf8.Valid(raw) {
+		return string(raw), nil
+	}
+	decoded, err := charmap.Windows1251.NewDecoder().Bytes(raw)
+	if err != nil {
+		decoded = raw
+	}
+	return string(decoded), nil
+}
+
+// findItems — раздачи обоих трекеров по точному названию
+func findItems(query string) []Item {
+	var items []Item
+
+	// поиск NNM работает только POST-ом (GET с кириллицей молча не ищет)
+	if body, err := fetchPost(nnmBase+"/forum/tracker.php", "nm="+cp1251Escape(query)); err == nil {
+		video := nnmVideoSubtree(body)
+		for _, it := range parseNNM(body) {
+			if video[it.ForumID] {
+				items = append(items, it)
+			}
+		}
+	} else {
+		log.Printf("find nnm: %v", err)
+	}
+
+	if body, err := fetch(rutorBase + "/search/0/0/000/0/" + url.PathEscape(query) + "/"); err == nil {
+		items = append(items, parseRutor(body)...)
+	} else {
+		log.Printf("find rutor: %v", err)
+	}
+
+	return items
+}
+
+// findRelease — лучшая раздача фильма под наши фильтры (год с допуском:
+// фильм ±1, сериал ±6 — у сезонных раздач год сезона, не первого)
+func findRelease(query string, year int, typ string, minq, voices string, junk, ru bool) (Item, bool) {
+	tol := 1
+	if typ == "tv" {
+		tol = 6
+	}
+
+	var kept []Item
+	for _, it := range findItems(query) {
+		if it.Year == 0 || year == 0 || abs(it.Year-year) > tol {
+			continue
+		}
+		kept = append(kept, it)
+	}
+
+	if junk {
+		kept = filterJunk(kept)
+	}
+	kept = filterVoice(kept, voices)
+	if ru {
+		kept = filterRussian(kept, "1")
+	}
+	kept = dedupeFilms(kept)
+	kept = filterItems(kept, minq, "all")
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Seeders > kept[j].Seeders })
+
+	if len(kept) == 0 {
+		return Item{}, false
+	}
+	return kept[0], true
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
 	return n
 }
 
