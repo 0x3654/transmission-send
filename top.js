@@ -467,7 +467,8 @@
 
                 this.activity.loader(true)
 
-                net.timeout(15000)
+                // холодная сборка топа на сервере может занять десятки секунд
+                net.timeout(60000)
 
                 net.silent(base + trackersQuery(sort), function(json){
                     var items = (json && json.items) || []

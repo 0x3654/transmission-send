@@ -336,9 +336,29 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Write(body)
 }
 
+// warmCache — фоновый прогрев ходовых ключей: первый запрос пользователя
+// не должен ждать холодную сборку (она занимает десятки секунд)
+func warmCache() {
+	keys := [][2]string{
+		{"both", "seeds"},
+		{"nnm", "seeds"},
+		{"nnm", "top"},
+	}
+	for {
+		for _, k := range keys {
+			if _, _, err := getTop(k[0], "video", 2, true, "", k[1]); err != nil {
+				log.Printf("warm %s/%s: %v", k[0], k[1], err)
+			}
+		}
+		time.Sleep(time.Duration(ttl) * time.Second / 2)
+	}
+}
+
 func main() {
 	port := env("PORT", "8355")
 	log.Printf("tracker-top %s on :%s, nnm=%s rutor=%s ttl=%ds", rev, port, nnmBase, rutorBase, ttl)
+
+	go warmCache()
 
 	mux := http.NewServeMux()
 
