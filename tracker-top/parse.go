@@ -25,6 +25,19 @@ var nnmNoRussian = map[int]bool{
 	781: true, // сериалы без озвученного перевода
 }
 
+// раздачи, которых не хотим видеть вообще (вхождение в название, без учёта регистра)
+var blockedNames = []string{"ultradox"}
+
+func blockedName(title string) bool {
+	low := strings.ToLower(title)
+	for _, b := range blockedNames {
+		if strings.Contains(low, b) {
+			return true
+		}
+	}
+	return false
+}
+
 // корневые разделы «видео» на NNMClub (идентификаторы форумов)
 var nnmVideoRoots = map[int]bool{
 	216: true, 318: true, 220: true, 224: true, 1311: true, 256: true, 264: true, // кино
@@ -98,6 +111,10 @@ var (
 	q720Re  = regexp.MustCompile(`(?i)720p?i?`)
 
 	dubRe = regexp.MustCompile(`(?i)дубляж|дубл[её]`)
+	// многоголосая озвучка: NNM «[MVO]», rutor «| P» (после качества, перед студией)
+	mvoRe      = regexp.MustCompile(`(?i)mvo|многоголос`)
+	rutorMvoRe = regexp.MustCompile(`\|\s*P\b`)
+	rutorDubRe = regexp.MustCompile(`\|\s*D\b`)
 	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
 	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
@@ -219,6 +236,7 @@ func parseNNM(body string) []Item {
 			Dub:     dubRe.MatchString(title),
 			TsSound: tsRe.MatchString(title),
 			Cam:     camRe.MatchString(title),
+			Mvo:     mvoRe.MatchString(title),
 		}
 		it.Voice = voiceOf(title)
 
@@ -282,6 +300,9 @@ func voiceOf(title string) string {
 	}
 	if dubRe.MatchString(title) {
 		return "Дубляж"
+	}
+	if mvoRe.MatchString(title) || rutorMvoRe.MatchString(title) {
+		return "Многоголосый"
 	}
 	return ""
 }
@@ -357,9 +378,10 @@ func parseRutor(body string) []Item {
 			Source:  "rutor",
 			URL:     fmt.Sprintf("%s/torrent/%s", rutorBase, tm[1]),
 			Quality: parseQuality(title),
-			Dub:     dubRe.MatchString(title),
+			Dub:     dubRe.MatchString(title) || rutorDubRe.MatchString(title),
 			TsSound: tsRe.MatchString(title),
 			Cam:     camRe.MatchString(title),
+			Mvo:     mvoRe.MatchString(title) || rutorMvoRe.MatchString(title),
 			Voice:   voiceOf(title),
 		}
 

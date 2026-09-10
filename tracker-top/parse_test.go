@@ -238,6 +238,32 @@ func TestSortItems(t *testing.T) {
 	check(t, "по завершённости", items[0].Ru == "B" && items[1].Ru == "C" && items[2].Ru == "A")
 }
 
+func TestMvoAndBlocked(t *testing.T) {
+	// многоголосость: NNM «[MVO]», rutor «| P»; дубляж rutor «| D»
+	check(t, "mvo [MVO]", mvoRe.MatchString("Всего одна ночь (2026) WEB-DL [H.264/1080p] [MVO]"))
+	check(t, "mvo rutor | P", rutorMvoRe.MatchString("Укрытие / Silo (2026) WEB-DL 1080p | P | Red Head Sound"))
+	check(t, "не mvo", !rutorMvoRe.MatchString("Фильм (2026) WEB-DL 1080p | D"))
+	check(t, "dub rutor | D", rutorDubRe.MatchString("Фильм (2026) WEB-DL 1080p | D"))
+	check(t, "не dub от | P", !rutorDubRe.MatchString("Фильм (2026) WEB-DL 1080p | P"))
+
+	items := []Item{
+		{Ru: "A", Year: 2026, Mvo: true, Voice: "", Seeders: 100},
+		{Ru: "B", Year: 2026, Mvo: false, Voice: "LostFilm", Seeders: 90},
+		{Ru: "C", Year: 2026, Mvo: false, Dub: true, Seeders: 80},
+		{Ru: "D", Year: 2026, Seeders: 70},
+	}
+	out := filterVoice(items, "Многоголосый")
+	check(t, "voice=Многоголосый", len(out) == 1 && out[0].Ru == "A")
+
+	// стоп-лист
+	blocked := []Item{
+		{Ru: "Фильм", Title: "Фильм (2026) WEB-DL 1080p | Ultradox"},
+		{Ru: "Фильм 2", Title: "Фильм 2 (2026) WEB-DL 1080p"},
+	}
+	out2 := filterBlocked(blocked)
+	check(t, "ultradox всегда вырезан", len(out2) == 1 && out2[0].Ru == "Фильм 2")
+}
+
 func TestFilterVoice(t *testing.T) {
 	items := []Item{
 		{Ru: "A", Year: 2026, Voice: "LostFilm", Quality: "1080", Seeders: 100},

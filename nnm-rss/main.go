@@ -469,7 +469,9 @@ func imdbTT(u string) string {
 // applyTorrent — link айтема: магнит, пока .torrent не собран (или PUBLIC_URL
 // не задан); как только DHT-резолвер сложил файл — http-ссылка на .torrent +
 // enclosure (nasctl и иные клиенты понимают только http-.torrent, как эталон
-// lostfilmfeed). guid не трогаем: смена link не должна делать item «новым».
+// lostfilmfeed). Пока файла нет — магнет и в enclosure: nasctl-кнопка читает
+// enclosure, без него айтем вообще «недоступен». guid не трогаем: смена link
+// не должна делать item «новым».
 func applyTorrent(it *feedItem, hash string) {
 	if hash == "" {
 		return
@@ -479,6 +481,7 @@ func applyTorrent(it *feedItem, hash string) {
 		return
 	}
 	prefetchTorrent(hash)
+	waitForTorrent(hash, 12*time.Second) // новый айтем ждём готовым: nasctl URL-поле заполняет только http-.torrent
 	if torrentReady(hash) {
 		st, err := os.Stat(torrentPath(hash))
 		if err != nil {
@@ -487,7 +490,9 @@ func applyTorrent(it *feedItem, hash string) {
 		u := selfURL + "/t/" + strings.ToLower(hash) + ".torrent"
 		it.Link = u
 		it.Enclosure = &feedEnclosure{URL: u, Length: st.Size(), Type: "application/x-bittorrent"}
+		return
 	}
+	it.Enclosure = &feedEnclosure{URL: magnetLink(hash), Type: "application/x-bittorrent"}
 }
 
 // itemDescr — карточка как на странице раздачи. Постер — отдельной строкой
@@ -692,6 +697,11 @@ func buildTopFeed(p *Profile, days int) ([]byte, []HistItem, map[string]int, err
 			}
 			// не-русская раздача: ни кириллицы в названии, ни русского описания
 			if !hasCyrillic(k.it.Title) && !hasCyrillic(rel.Descr) {
+				k.drop = true
+				return
+			}
+			// стоп-лист релизеров
+			if strings.Contains(strings.ToLower(k.it.Title), "ultradox") {
 				k.drop = true
 				return
 			}

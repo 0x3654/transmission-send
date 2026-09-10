@@ -78,6 +78,7 @@
         var VOICES = {
             any: 'Любая',
             'Дубляж': 'Дубляж',
+            'Многоголосый': 'Многоголосый',
             'LostFilm': 'LostFilm',
             'Кубик в Кубе': 'Кубик в Кубе',
             'HDrezka Studio': 'HDrezka Studio',
@@ -814,6 +815,7 @@
         var VOICES = {
             any: 'Любая',
             'Дубляж': 'Дубляж',
+            'Многоголосый': 'Многоголосый',
             'LostFilm': 'LostFilm',
             'Кубик в Кубе': 'Кубик в Кубе',
             'HDrezka Studio': 'HDrezka Studio',

@@ -53,7 +53,20 @@ func torrentReady(hash string) bool {
 
 // prefetchTorrent — фон; к следующему опросу ленты файл появится и link станет .torrent.
 // Префетчей мало параллельно: каждый — отдельный torrent-клиент с сокетами.
-var prefetchSem = make(chan struct{}, 2)
+var prefetchSem = make(chan struct{}, 3)
+
+// waitForTorrent — короткое ожидание готовности файла при сборке ленты:
+// свежий айтем чаще всего уезжает клиенту уже с .torrent-ссылкой (nasctl
+// заполняет поле URL в «New Task» только http-ссылками, магнет игнорирует)
+func waitForTorrent(hash string, d time.Duration) {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if torrentReady(hash) {
+			return
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+}
 
 func prefetchTorrent(hash string) {
 	if selfURL == "" || torrentReady(hash) {
@@ -123,6 +136,10 @@ func fetchTorrentFile(hash string) {
 		log.Printf("write %s: %v", hash[:8], err)
 		return
 	}
+	// файл готов — ленты пересоберутся при следующем опросе с .torrent-ссылками
+	cacheMu.Lock()
+	feedCache = map[string]feedCacheEntry{}
+	cacheMu.Unlock()
 	log.Printf("torrent %s: .torrent собран (%d байт)", hash[:8], len(raw))
 }
 

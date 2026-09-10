@@ -50,6 +50,7 @@ type Item struct {
 	Source    string `json:"source"`
 	Quality   string `json:"quality"` // 2160 | 1080 | 720 | sd
 	Dub       bool   `json:"dub"`
+	Mvo       bool   `json:"mvo"` // многоголосая озвучка (MVO, «| P» у rutor)
 	TsSound   bool   `json:"ts_sound"`
 	Cam       bool   `json:"cam"` // камрип/телефильм-скринка
 	Voice     string `json:"voice,omitempty"`
@@ -141,7 +142,7 @@ func filterVoice(items []Item, voices string) []Item {
 
 	out := make([]Item, 0, len(items))
 	for _, it := range items {
-		if want[it.Voice] || (want["Дубляж"] && it.Dub) {
+		if want[it.Voice] || (want["Дубляж"] && it.Dub) || (want["Многоголосый"] && it.Mvo) {
 			out = append(out, it)
 		}
 	}
@@ -212,6 +213,18 @@ func betterRelease(a, b Item) bool {
 		return qualityRank(a.Quality) > qualityRank(b.Quality)
 	}
 	return a.Size > b.Size
+}
+
+// filterBlocked — всегда: раздачи из стоп-списка (ultradox и пр.)
+func filterBlocked(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if blockedName(it.Title) || blockedName(it.Ru) {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // filterJunk вычищает камрипы и «звук с TS» ДО дедупа: фильм, у которого
@@ -285,6 +298,7 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 	if junk {
 		items = filterJunk(items)
 	}
+	items = filterBlocked(items)
 	items = filterVoice(items, voices)
 	items = filterRussian(items, ru)
 
