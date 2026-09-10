@@ -376,7 +376,7 @@ func main() {
 		}
 		year, _ := strconv.Atoi(param(q, "year", "0"))
 
-		it, found := findRelease(query, year, param(q, "type", "movie"),
+		it, found := findWithCache(query, year, param(q, "type", "movie"),
 			param(q, "minq", ""), param(q, "voice", ""),
 			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0")
 

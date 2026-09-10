@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -381,6 +382,49 @@ func findItems(query string) []Item {
 	}
 
 	return items
+}
+
+// кэш /find: найденное живёт 6 часов, ненайденное — 45 минут (новое появление
+// заметим быстро, а трекеры не дёргаем поиском на каждый пролистанный топ)
+var (
+	findCacheMu sync.Mutex
+	findCache   = map[string]findCacheEntry{}
+)
+
+type findCacheEntry struct {
+	ts    time.Time
+	item  Item
+	found bool
+}
+
+func findWithCache(query string, year int, typ, minq, voices string, junk, ru bool) (Item, bool) {
+	key := query + "|" + strconv.Itoa(year) + "|" + typ + "|" + minq + "|" + voices + "|" +
+		strconv.FormatBool(junk) + strconv.FormatBool(ru)
+
+	findCacheMu.Lock()
+	if e, ok := findCache[key]; ok {
+		live := 45 * time.Minute
+		if e.found {
+			live = 6 * time.Hour
+		}
+		if time.Since(e.ts) < live {
+			findCacheMu.Unlock()
+			return e.item, e.found
+		}
+		delete(findCache, key)
+	}
+	findCacheMu.Unlock()
+
+	it, found := findRelease(query, year, typ, minq, voices, junk, ru)
+
+	findCacheMu.Lock()
+	if len(findCache) > 5000 { // не растём бесконечно
+		findCache = map[string]findCacheEntry{}
+	}
+	findCache[key] = findCacheEntry{ts: time.Now(), item: it, found: found}
+	findCacheMu.Unlock()
+
+	return it, found
 }
 
 // findRelease — лучшая раздача фильма под наши фильтры (год с допуском:
