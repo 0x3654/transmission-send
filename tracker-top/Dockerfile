@@ -33,8 +33,10 @@ LABEL org.opencontainers.image.title="tracker-top" \
 COPY --from=build /out/tracker-top /tracker-top
 COPY --from=build /out/healthcheck /healthcheck
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=65534:65534 /data /data
 USER 65534:65534
+VOLUME /data
 EXPOSE 8355
-ENV PORT=8355
+ENV PORT=8355 DATA_DIR=/data
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 CMD ["/healthcheck"]
 ENTRYPOINT ["/tracker-top"]

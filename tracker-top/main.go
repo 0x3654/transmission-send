@@ -257,12 +257,54 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 		"|voice:" + voices + "|ru:" + ru + "|" + sort
 
 	cacheMu.Lock()
-	if e, ok := cache[key]; ok && time.Since(e.ts) < time.Duration(ttl)*time.Second {
+	if e, ok := cache[key]; ok {
+		if time.Since(e.ts) < time.Duration(ttl)*time.Second {
+			cacheMu.Unlock()
+			return e.payload, true, nil
+		}
+		// stale-while-revalidate: старое отдаём сразу, свежее собираем фоном —
+		// первый запрос к медленному трекеру не блокирует экран
+		if !e.busy {
+			e.busy = true
+			cache[key] = e
+			cacheMu.Unlock()
+			go func() {
+				_, payload, err := buildTopItems(src, cat, pages, junk, voices, ru, sort)
+				cacheMu.Lock()
+				if entry, ok2 := cache[key]; ok2 && err == nil {
+					entry.payload = payload
+					entry.ts = time.Now()
+					entry.busy = false
+					cache[key] = entry
+					diskDirty = true
+				} else if ok2 {
+					entry.busy = false
+					cache[key] = entry
+				}
+				cacheMu.Unlock()
+			}()
+			return e.payload, true, nil
+		}
 		cacheMu.Unlock()
 		return e.payload, true, nil
 	}
 	cacheMu.Unlock()
 
+	_, payload, err := buildTopItems(src, cat, pages, junk, voices, ru, sort)
+	if err != nil {
+		return Payload{}, false, err
+	}
+
+	cacheMu.Lock()
+	cache[key] = cacheEntry{ts: time.Now(), payload: payload}
+	cacheMu.Unlock()
+	diskDirty = true
+
+	return payload, false, nil
+}
+
+// buildTopItems — сборка топа без кэша: для getTop и фонового обновления SWR
+func buildTopItems(src, cat string, pages int, junk bool, voices, ru, sort string) ([]Item, Payload, error) {
 	var items []Item
 	var errs []error
 
@@ -293,7 +335,7 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 
 	// единственный источник упал — ошибка наружу; при «both» отдаём то, что дали
 	if len(errs) > 0 && len(items) == 0 {
-		return Payload{}, false, errs[0]
+		return nil, Payload{}, errs[0]
 	}
 
 	if junk {
@@ -311,11 +353,7 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 
 	p := Payload{Source: src, FetchedAt: time.Now().UTC().Format(time.RFC3339), Items: items}
 
-	cacheMu.Lock()
-	cache[key] = cacheEntry{ts: time.Now(), payload: p}
-	cacheMu.Unlock()
-
-	return p, false, nil
+	return items, p, nil
 }
 
 var (
@@ -326,6 +364,101 @@ var (
 type cacheEntry struct {
 	ts      time.Time
 	payload Payload
+	busy    bool // фоновое обновление уже идёт (stale-while-revalidate)
+}
+
+// ---------- персистентный кэш на томе: рестарт не теряет найденные
+// раздачи и топы — первый запрос после старта не бьёт по трекерам
+
+type diskTop struct {
+	Key     string  `json:"key"`
+	Payload Payload `json:"payload"`
+	TS      int64   `json:"ts"`
+}
+
+type diskFind struct {
+	Key   string `json:"key"`
+	Item  Item   `json:"item"`
+	Found bool   `json:"found"`
+	TS    int64  `json:"ts"`
+}
+
+type diskCache struct {
+	Top  []diskTop  `json:"top"`
+	Find []diskFind `json:"find"`
+}
+
+var diskDirty bool
+
+func diskPath() string {
+	dir := os.Getenv("DATA_DIR")
+	if dir == "" {
+		return ""
+	}
+	return dir + "/cache.json"
+}
+
+func saveDiskCache() {
+	path := diskPath()
+	if path == "" {
+		return
+	}
+
+	cacheMu.Lock()
+	findCacheMu.Lock()
+
+	var dc diskCache
+	for k, e := range cache {
+		dc.Top = append(dc.Top, diskTop{Key: k, Payload: e.payload, TS: e.ts.Unix()})
+	}
+	for k, e := range findCache {
+		dc.Find = append(dc.Find, diskFind{Key: k, Item: e.item, Found: e.found, TS: e.ts.Unix()})
+	}
+
+	findCacheMu.Unlock()
+	cacheMu.Unlock()
+
+	body, err := json.Marshal(&dc)
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		log.Printf("disk cache write: %v", err)
+		return
+	}
+	os.Rename(tmp, path)
+	diskDirty = false
+}
+
+func loadDiskCache() {
+	path := diskPath()
+	if path == "" {
+		return
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var dc diskCache
+	if err := json.Unmarshal(body, &dc); err != nil {
+		log.Printf("disk cache read: %v", err)
+		return
+	}
+
+	cacheMu.Lock()
+	for _, t := range dc.Top {
+		cache[t.Key] = cacheEntry{ts: time.Unix(t.TS, 0), payload: t.Payload}
+	}
+	cacheMu.Unlock()
+
+	findCacheMu.Lock()
+	for _, f := range dc.Find {
+		findCache[f.Key] = findCacheEntry{ts: time.Unix(f.TS, 0), item: f.Item, found: f.Found}
+	}
+	findCacheMu.Unlock()
+
+	log.Printf("disk cache: %d топов, %d раздач", len(dc.Top), len(dc.Find))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -358,6 +491,18 @@ func warmCache() {
 func main() {
 	port := env("PORT", "8355")
 	log.Printf("tracker-top %s on :%s, nnm=%s rutor=%s ttl=%ds", rev, port, nnmBase, rutorBase, ttl)
+
+	loadDiskCache()
+
+	// автосохранение: раз в минуту, если были обновления
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			if diskDirty {
+				saveDiskCache()
+			}
+		}
+	}()
 
 	go warmCache()
 

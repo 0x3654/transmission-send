@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 var _ = camRe
@@ -325,4 +326,43 @@ func TestFindRelease(t *testing.T) {
 		}
 	}
 	check(t, "холоп найден в обеих выдачах", hits >= 2, hits)
+}
+
+func TestDiskCache(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+
+	cacheMu.Lock()
+	cache = map[string]cacheEntry{}
+	cacheMu.Unlock()
+	findCacheMu.Lock()
+	findCache = map[string]findCacheEntry{}
+	findCacheMu.Unlock()
+
+	cacheMu.Lock()
+	cache["k1"] = cacheEntry{ts: time.Now(), payload: Payload{Source: "both", Items: []Item{{Ru: "Холоп 3", Seeders: 100}}}}
+	cacheMu.Unlock()
+	findCacheMu.Lock()
+	findCache["f1"] = findCacheEntry{ts: time.Now(), item: Item{Ru: "Мятеж"}, found: true}
+	findCacheMu.Unlock()
+
+	saveDiskCache()
+
+	cacheMu.Lock()
+	cache = map[string]cacheEntry{}
+	cacheMu.Unlock()
+	findCacheMu.Lock()
+	findCache = map[string]findCacheEntry{}
+	findCacheMu.Unlock()
+
+	loadDiskCache()
+
+	cacheMu.Lock()
+	_, okTop := cache["k1"]
+	cacheMu.Unlock()
+	findCacheMu.Lock()
+	e, okFind := findCache["f1"]
+	findCacheMu.Unlock()
+
+	check(t, "топ восстановлен", okTop)
+	check(t, "раздача восстановлена", okFind && e.found && e.item.Ru == "Мятеж", okFind)
 }
