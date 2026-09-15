@@ -58,10 +58,12 @@ type Item struct {
 }
 
 type Payload struct {
-	Source    string `json:"source"`
-	FetchedAt string `json:"fetched_at"`
-	Cached    bool   `json:"cached"`
-	Items     []Item `json:"items"`
+	Source     string `json:"source"`
+	FetchedAt  string `json:"fetched_at"`
+	Cached     bool   `json:"cached"`
+	Page       int    `json:"page,omitempty"`        // постраничный срез: 1..TotalPages
+	TotalPages int    `json:"total_pages,omitempty"` // при Page > 0
+	Items      []Item `json:"items"`
 }
 
 func env(k, def string) string {
@@ -256,6 +258,11 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
 		"|voice:" + voices + "|ru:" + ru + "|" + sort
 
+	// фоновое обновление базы — только когда клиент начал с первой страницы:
+	// глубже листает из старой базы, не дёргая трекеры заново
+	refresh := pages == 0 || pages == 1
+	_ = refresh
+
 	cacheMu.Lock()
 	if e, ok := cache[key]; ok {
 		if time.Since(e.ts) < time.Duration(ttl)*time.Second {
@@ -264,7 +271,7 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 		}
 		// stale-while-revalidate: старое отдаём сразу, свежее собираем фоном —
 		// первый запрос к медленному трекеру не блокирует экран
-		if !e.busy {
+		if !e.busy && refresh {
 			e.busy = true
 			cache[key] = e
 			cacheMu.Unlock()

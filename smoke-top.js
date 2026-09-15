@@ -40,7 +40,15 @@ function Reguest(){
             if(state.findJson) ok(state.findJson)
             else fail({})
         }
-        else if(state.serverJson) ok(state.serverJson)
+        else if(state.serverJson){
+            const m = url.match(/[&?]page=(\d+)/)
+            const pg = m ? +m[1] : 0
+            if(pg > 0 && state.serverJson.items){
+                const slice = 2 // мелкий срез для теста
+                const all = state.serverJson.items
+                ok({ page: pg, total_pages: Math.ceil(all.length / slice), items: all.slice((pg - 1) * slice, pg * slice) })
+            } else ok(state.serverJson)
+        }
         else fail({})
     }
 }
@@ -230,7 +238,7 @@ state.fields.top_hide_watched = 'false'
 state.serverJson = { items: [
     { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' },
     { ru: 'Сборник софта', orig: '', year: 2021, season: false, quality: 'sd' }
-] }
+] } // страница 1 = первые 2, total_pages = 1
 state.tmdbResponse = { results: [
     { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 }
 ] }
@@ -239,6 +247,7 @@ comp.create()
 
 {
     const url = calls.urls[calls.urls.length - 1]
+    assert.ok(url.includes('page=1'), 'первая страница запрошена явно')
     assert.ok(url.includes('minq=1080') && url.includes('junk=1'), 'качество и CAM-фильтр')
     assert.ok(url.includes('ru=1'), 'русский фильтр по умолчанию')
     const voice = decodeURIComponent((url.match(/voice=([^&]*)/) || [])[1] || '')
@@ -247,6 +256,23 @@ comp.create()
 assert.strictEqual(comp.built.length, 1, 'софт отсеян матчингом')
 assert.strictEqual(comp.built[0].quality, '4K', 'бейдж качества на карточке')
 console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
+
+// --- 4b2. постраничность: nextPageReuest тянет следующую страницу базы
+state.serverJson = { items: [
+    { ru: 'А', orig: '', year: 2026, season: false, quality: '1080' },
+    { ru: 'Б', orig: '', year: 2026, season: false, quality: '1080' },
+    { ru: 'В', orig: '', year: 2026, season: false, quality: '1080' }
+] }
+state.tmdbResponse = { results: [] } // ничто не сматчится — страница пустая, но запрос ушёл
+{
+    const cp = new calls.components['top_trackers']({ page: 1 })
+    cp.create()
+    let resolved2 = null
+    cp.nextPageReuest({ page: 2 }, (json) => { resolved2 = json }, () => {})
+    assert.ok(calls.urls[calls.urls.length - 1].includes('page=2'), 'вторая страница базы запрошена')
+    assert.strictEqual(resolved2 && resolved2.total_pages, 2, 'total_pages от серверной базы')
+}
+console.log('✓ «Топ трекеров» постранично: база сервера листается, экран не сбрасывается')
 
 // --- 4c. «Топ · трекеры»: единый «Только на русском» — латинская карточка скрыта
 state.serverJson = { items: [

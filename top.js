@@ -653,28 +653,23 @@
             hideWatched(comp)
             dedupeCards(comp)
 
-            comp.create = function(){
+            // база сервера листается постранично: страница = срез кэша,
+            // первая страница заодно обновляет базу фоном (на сервере)
+            function loadPage(page, ok, fail){
                 var base = serverUrl()
 
                 if(!base){
-                    Lampa.Noty.show(T('need_server'), { time: 6000 })
-                    Lampa.Settings.create('top')
-
-                    this.activity.loader(false)
-                    this.activity.toggle()
-
+                    fail()
                     return
                 }
 
-                this.activity.loader(true)
-
-                // холодная сборка топа на сервере может занять десятки секунд
                 net.timeout(60000)
 
-                net.silent(base + trackersQuery(sort), function(json){
+                net.silent(base + trackersQuery(sort) + '&page=' + page, function(json){
                     var items = (json && json.items) || []
+                    var total = (json && json.total_pages) || 1
 
-                    mapLimit(items.slice(0, MATCH_LIMIT), 4, matchOne, function(matched){
+                    mapLimit(items, 4, matchOne, function(matched){
                         var results = []
                         var seen = {}
 
@@ -715,13 +710,35 @@
                             })
                         }
 
-                        if(!results.length) comp.empty()
-                        else{
-                            comp.build({ results: results, total_pages: 1 })
-
-                            Lampa.Noty.show(T('trackers_matched') + ' ' + results.length + '/' + items.length)
-                        }
+                        ok({ results: results, total_pages: total })
                     })
+                }, fail)
+            }
+
+            comp.create = function(){
+                var self = this
+
+                var base = serverUrl()
+
+                if(!base){
+                    Lampa.Noty.show(T('need_server'), { time: 6000 })
+                    Lampa.Settings.create('top')
+
+                    this.activity.loader(false)
+                    this.activity.toggle()
+
+                    return
+                }
+
+                this.activity.loader(true)
+
+                loadPage(object.page || 1, function(data){
+                    if(!data.results.length && (object.page || 1) === 1) comp.empty()
+                    else{
+                        comp.build(data)
+
+                        Lampa.Noty.show(T('trackers_matched') + ' ' + data.results.length + '/' + data.results.length)
+                    }
                 }, function(a, b){
                     var why = ''
                     if(typeof a === 'object' && a) why = JSON.stringify(a).slice(0, 100)
@@ -731,6 +748,11 @@
 
                     comp.empty()
                 })
+            }
+
+            // докачка страниц: серверная база листается, экран не сбрасывается
+            comp.nextPageReuest = function(obj, resolve, reject){
+                loadPage(obj.page, resolve.bind(comp), reject.bind(comp))
             }
 
             comp.onRight = function(){
