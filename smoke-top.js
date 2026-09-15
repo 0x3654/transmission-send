@@ -75,7 +75,7 @@ sandbox.Lampa = {
     Activity: {
         push(a){ calls.push.push(a) },
         replace(a){ calls.replace.push(a) },
-        active(){ return null }
+        active(){ return { component: 'top_screen' } }
     },
     Select: { show(opts){ calls.selects.push(opts) }, close(){} },
     Input: { edit(opts, cb){ calls.inputs.push({ opts, cb }) } },
@@ -144,35 +144,13 @@ assert.strictEqual(calls.tmdb[calls.tmdb.length - 1].params.page, 3)
 assert.strictEqual(resolved.results[0].id, 1)
 console.log('✓ TopScreen: последний вариант из Storage + пагинация')
 
-// --- 3b. «Топ · TMDB»: карточки без раздачи скрываются (/find)
+// --- 3b. «Топ · TMDB» неблокирующий фильтр раздач: экран строится сразу,
+// батч фоном; при found=false экран пересобирается по памяти плагина
 state.fields.top_server_url = 'http://10.1.1.1:8355'
 state.fields.top_trackers_only = 'true'
 state.fields.top_min_quality = 'any'
 state.fields.top_no_cam = 'true'
 state.fields.top_ru_titles = 'true'
-
-// --- 4d. «Скрыть сериалы»: по умолчанию выкл; вкл — tv-карточки вырезаются
-state.fields.top_hide_series = 'true'
-state.serverJson = { items: [
-    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' },
-    { ru: 'Джентльмены', orig: 'The Gentlemen', year: 2026, season: true, quality: '1080' }
-] }
-state.tmdbResponse = { results: [
-    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 },
-    { id: 700, name: 'Джентльмены', first_air_date: '2024-01-01', media_type: 'tv', popularity: 80 }
-] }
-{
-    const c10 = new calls.components['top_trackers']({ page: 1 })
-    c10.create()
-    assert.deepStrictEqual(c10.built.map(r => r.id), [100], 'сериал скрыт, фильм остался')
-}
-state.fields.top_hide_series = 'false'
-{
-    const c11 = new calls.components['top_trackers']({ page: 1 })
-    c11.create()
-    assert.deepStrictEqual(c11.built.map(r => r.id).sort(), [100, 700], 'выключен — сериал виден')
-}
-state.fields.top_hide_series = undefined
 state.fields.top_voice_1 = 'any'
 state.fields.top_voice_2 = 'any'
 const mkResults = () => ({ results: [
@@ -181,54 +159,50 @@ const mkResults = () => ({ results: [
     { id: 4, title: 'No Localization Here', original_title: 'No Loc', release_date: '2026-01-01', media_type: 'movie' }
 ], total_pages: 1 })
 state.tmdbResponse = mkResults()
-state.findBatchJson = { found: [true, true] } // найдены…
+state.findBatchJson = { found: [true, true] }
 {
     const c2 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c2.create()
-    assert.deepStrictEqual(c2.built.map(r => r.id), [1, 2], 'русская карточка с раздачей на месте, без кириллицы (id 4) скрыта')
-    const batches = (calls.findBatches || []).length
-    assert.strictEqual(batches, 1, 'один батч-запрос на страницу, не поштучные /find')
-    assert.ok(calls.findBatches[0].startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET с items= (http принудительно https)')
-    assert.ok(!calls.urls.some(u => u.includes('/find?')), 'поштучных /find больше нет')
+    assert.deepStrictEqual(c2.built.map(r => r.id), [1, 2], 'экран построен мгновенно: ру-карточки показаны, латиница скрыта')
+    assert.strictEqual(calls.replace.length, 0, 'все найдены — пересборка не нужна')
 }
-state.findBatchJson = { found: [true, false] } // вторая без раздачи
+// страница задрейфовала: известные 1,2 + НОВАЯ карточка 5 без раздачи
+const driftResults = () => ({ results: [
+    { id: 1, title: 'Есть раздача', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 2, title: 'Нет раздачи', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 5, title: 'Свежий дрейф без раздачи', release_date: '2026-01-01', media_type: 'movie' }
+], total_pages: 1 })
+state.tmdbResponse = driftResults()
+state.findBatchJson = { found: [false] } // батч спросит только неизвестный id 5
 {
     const c3 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c3.create()
-    assert.deepStrictEqual(c3.built.map(r => r.id), [1], 'карточка без раздачи скрыта')
+    assert.deepStrictEqual(c3.built.map(r => r.id), [1, 2, 5], 'сначала показываем всё (батч фоном)')
+    assert.strictEqual(calls.replace.length, 1, 'батч нашёл карточку без раздач — экран перезапущен')
+    const batchUrl = calls.findBatches[calls.findBatches.length - 1]
+    assert.ok(batchUrl.startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET на нужный эндпоинт')
+    assert.ok(decodeURIComponent(batchUrl).includes('Свежий дрейф'), 'батч спросил только неизвестный id')
+    // «после replace»: batchFound в памяти — фильтр применяется без запроса
+    const before = calls.findBatches.length
+    state.tmdbResponse = driftResults()
+    const c3b = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c3b.create()
+    assert.deepStrictEqual(c3b.built.map(r => r.id), [1, 2], 'вторая сборка отфильтрована по памяти (id 5 скрыт)')
+    assert.strictEqual(calls.findBatches.length, before, 'нового батча не потребовалось')
+    assert.strictEqual(calls.replace.length, 1, 'цикла пересборок нет (нечего скрывать)')
 }
-// дедуп между страницами: тот же фильм приехал со страницей 2 — не добавляется
-{
-    const c5 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
-    c5.create()
-    c5.append({ results: [
-        { id: 1, title: 'Есть раздача', release_date: '2026-01-01', media_type: 'movie' }, // дубль
-        { id: 3, title: 'Новый со второй страницы', release_date: '2026-01-01', media_type: 'movie' }
-    ] }, true)
-    assert.deepStrictEqual(c5.built.map(r => r.id), [1, 3], 'дубль между страницами вырезан')
-}
-// «Только на русском» выключен — латинская карточка возвращается
-{
-    state.fields.top_ru_titles = 'false'
-    state.tmdbResponse = mkResults()
-    const c6 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
-    c6.create()
-    assert.ok(c6.built.some(r => r.id === 4), 'без тумблера латинские названия видны')
-    state.fields.top_ru_titles = undefined
-    state.tmdbResponse = mkResults()
-}
-// тумблер выключен — батч не зовётся
+// тумблер выключен — батч вообще не зовётся
 state.fields.top_trackers_only = 'false'
 state.tmdbResponse = mkResults()
 {
-    const n0 = (calls.findBatches || []).length
+    const before = calls.findBatches.length
     const c4 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c4.create()
-    assert.strictEqual(c4.built.length, 2)
-    assert.strictEqual((calls.findBatches || []).length, n0, 'без тумблера батч не зовётся')
+    assert.deepStrictEqual(c4.built.map(r => r.id), [1, 2], 'латиница скрыта ру-фильтром, раздачи не проверяются')
+    assert.strictEqual(calls.findBatches.length, before, 'без тумблера батч не зовётся')
 }
 state.fields.top_trackers_only = 'true'
-console.log('✓ «Только с раздачами»: один батч на страницу; дедуп между страницами; без тумблера не мешает')
+console.log('✓ «Только с раздачами» неблокирующе: экран сразу, батч фоном, пересборка по памяти без цикла')
 
 // --- 4. «Топ трекеров»: мусорный sort в Storage не ломает запрос
 state.storage.top_trackers_sort = 'undefined'

@@ -110,6 +110,10 @@
             { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
 
+        // найденные раздачи по id из последнего батча (память плагина):
+        // вторая сборка экрана строится по ним мгновенно, без запроса
+        var batchFound = {}
+
         //---------- лист фильтров «как в торрентах»: строки с вложенным выбором
 
         var QUALITY = { any: 'Любое', '720': '720p и выше', '1080': '1080p и выше (вкл. 4K)', '2160': '4K' }
@@ -236,42 +240,6 @@
             hideWatched(comp)
             dedupeCards(comp)
 
-            // есть ли у карточек раздачи на трекерах под наши фильтры:
-            // один батч-запрос на страницу (внутри сервер кэширует по 12ч),
-            // трекеры ищут по русскому названию — локализованный title первым
-            function filterByTrackers(json, cb){
-                if(String(Lampa.Storage.field('top_trackers_only')) !== 'true' || !json.results || !json.results.length){
-                    return cb()
-                }
-
-                var base = serverUrl()
-
-                if(!base) return cb()
-
-                var payload = json.results.map(function(el){
-                    return {
-                        query: el.title || el.name || el.original_title || el.original_name || '',
-                        year: parseInt(((el.release_date || el.first_air_date || '') + '').slice(0, 4), 10) || 0,
-                        type: el.name ? 'tv' : 'movie'
-                    }
-                })
-
-                net.timeout(60000)
-
-                // GET: не зависит от кодирования POST-тела средствами Lampa
-                net.silent(base + '/findbatch?items=' + encodeURIComponent(JSON.stringify(payload)) + filtersParams(), function(r){
-                    if(r && r.found && r.found.length === json.results.length){
-                        json.results = json.results.filter(function(el, i){
-                            return r.found[i] !== false
-                        })
-                    }
-
-                    cb()
-                }, function(){
-                    cb() // сервер недоступен — карточки не теряем
-                })
-            }
-
             // «Только на русском»: карточки без русских букв в названии
             // (нет локализации) не показываем
             function filterRuTitles(json){
@@ -284,6 +252,67 @@
                 }
             }
 
+            // найденные раздачи по id из последнего батча — память модуля:
+            // переживает пересоздание экрана (Activity.replace)
+            function applyBatch(json){
+                if(String(Lampa.Storage.field('top_trackers_only')) !== 'true' || !json.results) return
+
+                json.results = json.results.filter(function(el){
+                    return batchFound[el.id] !== false
+                })
+            }
+
+            // фоновый батч: экран уже показан, ответ приносит found по id —
+            // кэш сервера греется; если на экране есть карточки без раздач,
+            // экран тихо пересобирается (вторая сборка идёт без запроса)
+            function warmTrackers(json){
+                if(String(Lampa.Storage.field('top_trackers_only')) !== 'true') return
+                if(!json.results || !json.results.length) return
+
+                var base = serverUrl()
+
+                if(!base) return
+
+                // спрашиваем только неизвестные id: известные из прошлого батча
+                // не дёргают сервер — циклов пересборки не возникает
+                var unknown = json.results.filter(function(el){
+                    return !batchFound.hasOwnProperty(el.id)
+                })
+
+                if(!unknown.length) return
+
+                var payload = unknown.map(function(el){
+                    return {
+                        query: el.title || el.name || el.original_title || el.original_name || '',
+                        year: parseInt(((el.release_date || el.first_air_date || '') + '').slice(0, 4), 10) || 0,
+                        type: el.name ? 'tv' : 'movie'
+                    }
+                })
+
+                net.timeout(60000) // серверу даём время досчитать под семафором
+
+                net.silent(base + '/findbatch?items=' + encodeURIComponent(JSON.stringify(payload)) + filtersParams(), function(r){
+                    if(!r || !r.found || r.found.length !== unknown.length) return
+
+                    var needRebuild = false
+
+                    unknown.forEach(function(el, i){
+                        batchFound[el.id] = r.found[i]
+
+                        if(r.found[i] === false) needRebuild = true
+                    })
+
+                    if(!needRebuild) return
+
+                    try{
+                        var act = Lampa.Activity.active()
+
+                        if(act && act.component === 'top_screen') Lampa.Activity.replace({})
+                    }
+                    catch(e){}
+                }, function(){})
+            }
+
             function load(page, ok, fail){
                 var params = { page: page }
 
@@ -293,7 +322,9 @@
 
                 Lampa.Api.sources.tmdb.get(object.top_method, params, function(json){
                     filterRuTitles(json)
-                    filterByTrackers(json, function(){ ok(json) })
+                    applyBatch(json) // мгновенно по предыдущему батчу
+                    ok(json)
+                    warmTrackers(json) // фоном, без ожидания
                 }, fail)
             }
 
