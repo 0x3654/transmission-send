@@ -75,6 +75,8 @@
             top_settings_russian_only_desc: { ru: 'скрывать раздачи совсем без русских букв в названии', en: 'hide releases with no cyrillic in title' },
             top_settings_trackers_only: { ru: 'Только с раздачами', en: 'With releases only' },
             top_settings_trackers_only_desc: { ru: 'в «Топе · TMDB» показывать только фильмы, у которых на трекерах есть раздача под наши фильтры', en: 'show only films with a matching tracker release' },
+            top_settings_ru_titles: { ru: 'Только на русском', en: 'Russian titles only' },
+            top_settings_ru_titles_desc: { ru: 'в «Топе · TMDB» скрывать фильмы без русских букв в названии (нет русской локализации)', en: 'hide cards with no cyrillic in title' },
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
             top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
             top_settings_voice_2:  { ru: 'Озвучка 2 (трекеры)', en: 'Voice 2 (trackers)' },
@@ -267,6 +269,18 @@
                 }, JSON.stringify(payload))
             }
 
+            // «Только на русском»: карточки без русских букв в названии
+            // (нет локализации) не показываем
+            function filterRuTitles(json){
+                if(String(Lampa.Storage.field('top_ru_titles')) === 'false') return
+
+                if(json.results){
+                    json.results = json.results.filter(function(el){
+                        return /[А-Яа-яЁё]/.test(el.title || el.name || '')
+                    })
+                }
+            }
+
             function load(page, ok, fail){
                 var params = { page: page }
 
@@ -275,6 +289,7 @@
                 }
 
                 Lampa.Api.sources.tmdb.get(object.top_method, params, function(json){
+                    filterRuTitles(json)
                     filterByTrackers(json, function(){ ok(json) })
                 }, fail)
             }
@@ -296,7 +311,8 @@
                         variants: VARIANTS
                     },
                     { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
-                    { title: T('settings_trackers_only') + ': ' + yesNo('top_trackers_only'), toggle: 'top_trackers_only' }
+                    { title: T('settings_trackers_only') + ': ' + yesNo('top_trackers_only'), toggle: 'top_trackers_only' },
+                    { title: T('settings_ru_titles') + ': ' + yesNo('top_ru_titles'), toggle: 'top_ru_titles' }
                 ])
             }
 
@@ -535,7 +551,14 @@
         function TrackersScreen(object){
             var comp = new Lampa.InteractionCategory(object)
             var net = new Lampa.Reguest()
-            var sort = object.top_sort || field('top_trackers_sort') || 'seeds'
+
+            // в Storage могло лежать что угодно — сервер отвергает невалидный sort
+            var sort = object.top_sort === 'seeds' || object.top_sort === 'top' ? object.top_sort : ''
+            if(!sort){
+                var saved = field('top_trackers_sort')
+                if(saved === 'seeds' || saved === 'top') sort = saved
+            }
+            if(!sort) sort = 'seeds'
 
             hideWatched(comp)
             dedupeCards(comp)
@@ -807,6 +830,19 @@
             field: {
                 name: T('settings_trackers_only'),
                 description: T('settings_trackers_only_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_ru_titles',
+                type: 'trigger',
+                default: true
+            },
+            field: {
+                name: T('settings_ru_titles'),
+                description: T('settings_ru_titles_desc')
             }
         })
 

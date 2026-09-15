@@ -108,7 +108,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
 assert.strictEqual(calls.menu.length, 2)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
-    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_trackers_only', 'top_no_cam'])
+    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_trackers_only', 'top_ru_titles', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
 {
     const sel = calls.params[2].param.values
@@ -136,7 +136,7 @@ calls.menu[0].cb()
 assert.strictEqual(calls.push[calls.push.length - 1].title, 'Топ · TMDB', 'заголовок экрана — как в меню')
 assert.strictEqual(calls.push[calls.push.length - 1].top_method, 'discover/movie')
 let comp = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
-state.tmdbResponse = { results: [{ id: 1, title: 'A', media_type: 'movie' }], total_pages: 7 }
+state.tmdbResponse = { results: [{ id: 1, title: 'А', media_type: 'movie' }], total_pages: 7 }
 comp.create()
 let resolved = null
 comp.nextPageReuest({ page: 3 }, (json) => { resolved = json }, () => {})
@@ -154,14 +154,15 @@ state.fields.top_voice_1 = 'any'
 state.fields.top_voice_2 = 'any'
 const mkResults = () => ({ results: [
     { id: 1, title: 'Есть раздача', original_title: 'With Release', release_date: '2026-01-01', media_type: 'movie' },
-    { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' }
+    { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 4, title: 'No Localization Here', original_title: 'No Loc', release_date: '2026-01-01', media_type: 'movie' }
 ], total_pages: 1 })
 state.tmdbResponse = mkResults()
-state.findBatchJson = { found: [true, true] } // оба найдены…
+state.findBatchJson = { found: [true, true] } // найдены…
 {
     const c2 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c2.create()
-    assert.strictEqual(c2.built.length, 2, 'обе карточки на месте')
+    assert.deepStrictEqual(c2.built.map(r => r.id), [1, 2], 'русская карточка с раздачей на месте, без кириллицы (id 4) скрыта')
     const batches = (calls.findBatches || []).length
     assert.strictEqual(batches, 1, 'один батч-запрос на страницу, не поштучные /find')
     assert.ok(calls.findBatches[0].startsWith('https://10.1.1.1:8355/findbatch'), 'батч на нужный эндпоинт (http принудительно https)')
@@ -183,6 +184,16 @@ state.findBatchJson = { found: [true, false] } // вторая без разда
     ] }, true)
     assert.deepStrictEqual(c5.built.map(r => r.id), [1, 3], 'дубль между страницами вырезан')
 }
+// «Только на русском» выключен — латинская карточка возвращается
+{
+    state.fields.top_ru_titles = 'false'
+    state.tmdbResponse = mkResults()
+    const c6 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c6.create()
+    assert.ok(c6.built.some(r => r.id === 4), 'без тумблера латинские названия видны')
+    state.fields.top_ru_titles = undefined
+    state.tmdbResponse = mkResults()
+}
 // тумблер выключен — батч не зовётся
 state.fields.top_trackers_only = 'false'
 state.tmdbResponse = mkResults()
@@ -196,8 +207,16 @@ state.tmdbResponse = mkResults()
 state.fields.top_trackers_only = 'true'
 console.log('✓ «Только с раздачами»: один батч на страницу; дедуп между страницами; без тумблера не мешает')
 
-// --- 4. «Топ трекеров»: качество + ДВЕ озвучки + CAM в запросе
-state.fields.top_server_url = 'http://10.1.1.1:8355'
+// --- 4. «Топ трекеров»: мусорный sort в Storage не ломает запрос
+state.storage.top_trackers_sort = 'undefined'
+{
+    const c7 = new calls.components['top_trackers']({ page: 1 })
+    c7.create()
+    assert.ok(calls.urls[calls.urls.length - 1].includes('sort=seeds'), 'невалидный sort заменён на seeds')
+}
+delete state.storage.top_trackers_sort
+
+// --- 4b. «Топ трекеров»: качество + ДВЕ озвучки + CAM в запросе
 state.fields.top_min_quality = '1080'
 state.fields.top_no_cam = 'true'
 state.fields.top_voice_1 = 'Дубляж'
