@@ -399,6 +399,15 @@ func lastVideoTree() map[int]bool {
 	return videoTreeLast
 }
 
+// normName — нормализация названия для точного сравнения при поиске
+var normNameRe = regexp.MustCompile("[«»\"'`:?!,()\\[\\]{}–—|/_.-]")
+
+func normName(s string) string {
+	s = strings.ToLower(s)
+	s = normNameRe.ReplaceAllString(s, " ")
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // findItems — раздачи обоих трекеров по точному названию
 func findItems(query string) []Item {
 	var items []Item
@@ -491,9 +500,17 @@ func findRelease2(query, orig string, year int, typ string, minq, voices string,
 		candidates = append(candidates, findItems(orig)...)
 	}
 
+	// название должно совпадать точно (в нормализованном виде) по любой из
+	// пар: ru==query или orig==orig — иначе «Человек-паук» ловит чужой
+	// сериал «Ваш дружелюбный сосед Человек-паук» годом ±1
+	nq, no := normName(query), normName(orig)
+
 	var kept []Item
 	for _, it := range candidates {
 		if it.Year == 0 || year == 0 || abs(it.Year-year) > tol {
+			continue
+		}
+		if normName(it.Ru) != nq && !(no != "" && normName(it.Orig) == no) {
 			continue
 		}
 		kept = append(kept, it)
