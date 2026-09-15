@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const cacheVer = "v3" // версия логики фильтров: смена инвалидирует кэш на томе
+const cacheVer = "v4" // версия логики фильтров: смена инвалидирует кэш на томе
 
 var (
 	nnmBase   = env("NNM_BASE", "https://nnmclub.to")
@@ -552,6 +552,7 @@ func main() {
 
 		var req []struct {
 			Query string `json:"query"`
+			Orig  string `json:"orig"`
 			Year  int    `json:"year"`
 			Type  string `json:"type"`
 		}
@@ -575,7 +576,7 @@ func main() {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				_, found[i] = findWithCache(req[i].Query, req[i].Year, req[i].Type, minq, voices, junk, ru)
+				_, found[i] = findWithCache2(req[i].Query, req[i].Orig, req[i].Year, req[i].Type, minq, voices, junk, ru)
 			}(i)
 		}
 		wg.Wait()
@@ -596,7 +597,7 @@ func main() {
 		}
 		year, _ := strconv.Atoi(param(q, "year", "0"))
 
-		it, found := findWithCache(query, year, param(q, "type", "movie"),
+		it, found := findWithCache2(query, param(q, "orig", ""), year, param(q, "type", "movie"),
 			param(q, "minq", ""), param(q, "voice", ""),
 			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0")
 

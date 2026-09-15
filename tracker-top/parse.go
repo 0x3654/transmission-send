@@ -209,6 +209,7 @@ func nnmTop(cat string, pages int, order int) ([]Item, error) {
 	videoIDs := map[int]bool{}
 	if cat == "video" {
 		videoIDs = nnmVideoSubtree(pagesHTML[0])
+		saveVideoTree(videoIDs)
 	}
 
 	var items []Item
@@ -379,15 +380,37 @@ func fetchPost(u, form string) (string, error) {
 	return string(decoded), nil
 }
 
+// видео-поддерево NNM из последней страницы топа: страница поиска селекта
+// разделов не содержит
+var (
+	videoTreeMu   sync.RWMutex
+	videoTreeLast map[int]bool
+)
+
+func saveVideoTree(ids map[int]bool) {
+	videoTreeMu.Lock()
+	videoTreeLast = ids
+	videoTreeMu.Unlock()
+}
+
+func lastVideoTree() map[int]bool {
+	videoTreeMu.RLock()
+	defer videoTreeMu.RUnlock()
+	return videoTreeLast
+}
+
 // findItems — раздачи обоих трекеров по точному названию
 func findItems(query string) []Item {
 	var items []Item
 
 	// поиск NNM работает только POST-ом (GET с кириллицей молча не ищет)
 	if body, err := fetchPost(nnmBase+"/forum/tracker.php", "nm="+cp1251Escape(query)); err == nil {
-		video := nnmVideoSubtree(body)
+		// на странице поиска нет селекта разделов: поддерево берём из
+		// последней страницы топа (nnmTop его обновляет), пусто — не фильтруем,
+		// нас прикрывают junk/ru/год и видеопризнак ниже
+		video := lastVideoTree()
 		for _, it := range parseNNM(body) {
-			if video[it.ForumID] {
+			if len(video) == 0 || video[it.ForumID] {
 				items = append(items, it)
 			}
 		}
@@ -422,7 +445,11 @@ type findCacheEntry struct {
 }
 
 func findWithCache(query string, year int, typ, minq, voices string, junk, ru bool) (Item, bool) {
-	key := cacheVer + "|" + query + "|" + strconv.Itoa(year) + "|" + typ + "|" + minq + "|" + voices + "|" +
+	return findWithCache2(query, "", year, typ, minq, voices, junk, ru)
+}
+
+func findWithCache2(query, orig string, year int, typ, minq, voices string, junk, ru bool) (Item, bool) {
+	key := cacheVer + "|" + query + "|" + orig + "|" + strconv.Itoa(year) + "|" + typ + "|" + minq + "|" + voices + "|" +
 		strconv.FormatBool(junk) + strconv.FormatBool(ru)
 
 	findCacheMu.Lock()
@@ -439,7 +466,7 @@ func findWithCache(query string, year int, typ, minq, voices string, junk, ru bo
 	}
 	findCacheMu.Unlock()
 
-	it, found := findRelease(query, year, typ, minq, voices, junk, ru)
+	it, found := findRelease2(query, orig, year, typ, minq, voices, junk, ru)
 
 	findCacheMu.Lock()
 	if len(findCache) > 5000 { // не растём бесконечно
@@ -454,13 +481,24 @@ func findWithCache(query string, year int, typ, minq, voices string, junk, ru bo
 // findRelease — лучшая раздача фильма под наши фильтры (год с допуском:
 // фильм ±1, сериал ±6 — у сезонных раздач год сезона, не первого)
 func findRelease(query string, year int, typ string, minq, voices string, junk, ru bool) (Item, bool) {
+	return findRelease2(query, "", year, typ, minq, voices, junk, ru)
+}
+
+// findRelease2 — ищем и по русскому названию, и по оригиналу: NNM/rutor
+// находят разное (живой кейс: «Одиссея» пусто, «The Odyssey» — раздача с RU)
+func findRelease2(query, orig string, year int, typ string, minq, voices string, junk, ru bool) (Item, bool) {
 	tol := 1
 	if typ == "tv" {
 		tol = 6
 	}
 
+	candidates := findItems(query)
+	if orig != "" && orig != query {
+		candidates = append(candidates, findItems(orig)...)
+	}
+
 	var kept []Item
-	for _, it := range findItems(query) {
+	for _, it := range candidates {
 		if it.Year == 0 || year == 0 || abs(it.Year-year) > tol {
 			continue
 		}

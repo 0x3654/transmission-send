@@ -321,6 +321,7 @@
                 var payload = unknown.map(function(el){
                     return {
                         query: el.title || el.name || el.original_title || el.original_name || '',
+                        orig: el.original_title || el.original_name || '',
                         year: parseInt(((el.release_date || el.first_air_date || '') + '').slice(0, 4), 10) || 0,
                         type: el.name ? 'tv' : 'movie'
                     }
