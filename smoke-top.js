@@ -108,7 +108,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
 assert.strictEqual(calls.menu.length, 2)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
-    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_trackers_only', 'top_ru_titles', 'top_no_cam'])
+    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_trackers_only', 'top_hide_series', 'top_ru_titles', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
 {
     const sel = calls.params[2].param.values
@@ -150,6 +150,29 @@ state.fields.top_trackers_only = 'true'
 state.fields.top_min_quality = 'any'
 state.fields.top_no_cam = 'true'
 state.fields.top_ru_titles = 'true'
+
+// --- 4d. «Скрыть сериалы»: по умолчанию выкл; вкл — tv-карточки вырезаются
+state.fields.top_hide_series = 'true'
+state.serverJson = { items: [
+    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' },
+    { ru: 'Джентльмены', orig: 'The Gentlemen', year: 2026, season: true, quality: '1080' }
+] }
+state.tmdbResponse = { results: [
+    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 },
+    { id: 700, name: 'Джентльмены', first_air_date: '2024-01-01', media_type: 'tv', popularity: 80 }
+] }
+{
+    const c10 = new calls.components['top_trackers']({ page: 1 })
+    c10.create()
+    assert.deepStrictEqual(c10.built.map(r => r.id), [100], 'сериал скрыт, фильм остался')
+}
+state.fields.top_hide_series = 'false'
+{
+    const c11 = new calls.components['top_trackers']({ page: 1 })
+    c11.create()
+    assert.deepStrictEqual(c11.built.map(r => r.id).sort(), [100, 700], 'выключен — сериал виден')
+}
+state.fields.top_hide_series = undefined
 state.fields.top_voice_1 = 'any'
 state.fields.top_voice_2 = 'any'
 const mkResults = () => ({ results: [

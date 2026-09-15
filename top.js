@@ -76,6 +76,8 @@
             top_settings_trackers_only: { ru: 'Только с раздачами', en: 'With releases only' },
             top_settings_trackers_only_desc: { ru: 'в «Топе · TMDB» показывать только фильмы, у которых на трекерах есть раздача под наши фильтры', en: 'show only films with a matching tracker release' },
             top_settings_ru_titles: { ru: 'Только на русском', en: 'Russian titles only' },
+            top_settings_hide_series: { ru: 'Скрыть сериалы', en: 'Hide series' },
+            top_settings_hide_series_desc: { ru: '«Топ · трекеры»: только фильмы, без сериалов', en: 'Top · trackers: movies only' },
             top_settings_ru_titles_desc: { ru: 'в «Топе · TMDB» скрывать фильмы без русских букв в названии (нет русской локализации)', en: 'hide cards with no cyrillic in title' },
             top_settings_no_cam_desc: { ru: 'камрипы и «звук с TS» не попадают в топ; фильмы только с такими раздачами скрываются целиком', en: 'camrips and TS-sound stay out; films with only such releases are hidden' },
             top_settings_voice_1:  { ru: 'Озвучка 1 (трекеры)', en: 'Voice 1 (trackers)' },
@@ -617,6 +619,15 @@
                             })
                         }
 
+                        // «Скрыть сериалы»: тип берём у карточки TMDB —
+                        // у сериала есть name и нет title, это надёжнее
+                        // признака «сезон» в названии раздачи
+                        if(field('top_hide_series') === 'true'){
+                            results = results.filter(function(el){
+                                return !el.name
+                            })
+                        }
+
                         if(!results.length) comp.empty()
                         else{
                             comp.build({ results: results, total_pages: 1 })
@@ -650,6 +661,7 @@
                     { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
                     { title: T('settings_no_cam') + ': ' + yesNo('top_no_cam'), toggle: 'top_no_cam' },
                     { title: T('settings_ru_titles') + ': ' + yesNo('top_ru_titles'), toggle: 'top_ru_titles' },
+                    { title: T('settings_hide_series') + ': ' + yesNo('top_hide_series'), toggle: 'top_hide_series' },
                     { title: '↻ ' + T('apply'), go: true }
                 ], function(){
                     Lampa.Storage.set('top_trackers_sort', field('top_trackers_sort') || 'seeds')
@@ -826,6 +838,19 @@
             field: {
                 name: T('settings_trackers_only'),
                 description: T('settings_trackers_only_desc')
+            }
+        })
+
+        Lampa.SettingsApi.addParam({
+            component: 'top',
+            param: {
+                name: 'top_hide_series',
+                type: 'trigger',
+                default: false // по умолчанию показываем всё
+            },
+            field: {
+                name: T('settings_hide_series'),
+                description: T('settings_hide_series_desc')
             }
         })
 
