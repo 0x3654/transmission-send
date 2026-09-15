@@ -23,7 +23,13 @@ function Reguest(){
     this.timeout = () => {}
     this.silent = (url, ok, fail) => {
         calls.urls.push(url)
-        if(url.includes('/find')) {
+        if(url.includes('/findbatch')) {
+            calls.findBatches = calls.findBatches || []
+            calls.findBatches.push(url)
+            if(state.findBatchJson) ok(state.findBatchJson)
+            else fail({})
+        }
+        else if(url.includes('/find')) {
             if(state.findJson) ok(state.findJson)
             else fail({})
         }
@@ -146,38 +152,49 @@ state.fields.top_no_cam = 'true'
 state.fields.top_russian_only = 'true'
 state.fields.top_voice_1 = 'any'
 state.fields.top_voice_2 = 'any'
-state.tmdbResponse = { results: [
+const mkResults = () => ({ results: [
     { id: 1, title: 'Есть раздача', original_title: 'With Release', release_date: '2026-01-01', media_type: 'movie' },
     { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' }
-], total_pages: 1 }
-state.findJson = { found: true } // оба найдены…
+], total_pages: 1 })
+state.tmdbResponse = mkResults()
+state.findBatchJson = { found: [true, true] } // оба найдены…
 {
     const c2 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c2.create()
     assert.strictEqual(c2.built.length, 2, 'обе карточки на месте')
-    assert.ok(calls.urls.some(u => u.includes('/find?query=%D0%95%D1%81%D1%82%D1%8C%20%D1%80%D0%B0%D0%B7%D0%B4%D0%B0%D1%87%D0%B0')), 'запрос /find с русским названием')
+    const batches = (calls.findBatches || []).length
+    assert.strictEqual(batches, 1, 'один батч-запрос на страницу, не поштучные /find')
+    assert.ok(calls.findBatches[0].startsWith('https://10.1.1.1:8355/findbatch'), 'батч на нужный эндпоинт (http принудительно https)')
+    assert.ok(!calls.urls.some(u => u.includes('/find?')), 'поштучных /find больше нет')
 }
-state.findJson = { found: false } // …потом ничего не найдено
+state.findBatchJson = { found: [true, false] } // вторая без раздачи
 {
     const c3 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c3.create()
-    assert.strictEqual(c3.built.length, 0, 'карточки без раздачи скрыты')
+    assert.deepStrictEqual(c3.built.map(r => r.id), [1], 'карточка без раздачи скрыта')
 }
-// тумблер выключен — /find не зовётся (и восстанавливаем общий объект-стаб)
-state.fields.top_trackers_only = 'false'
-state.tmdbResponse = { results: [
-    { id: 1, title: 'Есть раздача', original_title: 'With Release', release_date: '2026-01-01', media_type: 'movie' },
-    { id: 2, title: 'Нет раздачи', original_title: 'No Release', release_date: '2026-01-01', media_type: 'movie' }
-], total_pages: 1 }
+// дедуп между страницами: тот же фильм приехал со страницей 2 — не добавляется
 {
-    const n0 = calls.urls.length
+    const c5 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    c5.create()
+    c5.append({ results: [
+        { id: 1, title: 'Есть раздача', release_date: '2026-01-01', media_type: 'movie' }, // дубль
+        { id: 3, title: 'Новый со второй страницы', release_date: '2026-01-01', media_type: 'movie' }
+    ] }, true)
+    assert.deepStrictEqual(c5.built.map(r => r.id), [1, 3], 'дубль между страницами вырезан')
+}
+// тумблер выключен — батч не зовётся
+state.fields.top_trackers_only = 'false'
+state.tmdbResponse = mkResults()
+{
+    const n0 = (calls.findBatches || []).length
     const c4 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c4.create()
     assert.strictEqual(c4.built.length, 2)
-    assert.strictEqual(calls.urls.length, n0, 'без тумблера /find не зовётся')
+    assert.strictEqual((calls.findBatches || []).length, n0, 'без тумблера батч не зовётся')
 }
 state.fields.top_trackers_only = 'true'
-console.log('✓ «Только с раздачами»: /find фильтрует карточки, без тумблера не мешает')
+console.log('✓ «Только с раздачами»: один батч на страницу; дедуп между страницами; без тумблера не мешает')
 
 // --- 4. «Топ трекеров»: качество + ДВЕ озвучки + CAM в запросе
 state.fields.top_server_url = 'http://10.1.1.1:8355'
@@ -239,11 +256,11 @@ assert.deepStrictEqual(comp.built.map(r => r.id), [300], 'history/viewed/look/th
 
 // страница 2+ приходит через append напрямую — фильтр обязан работать и там
 comp.append({ results: [
-    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie' },
-    { id: 302, title: 'Второй странице тоже фильтр', release_date: '2026-01-01', media_type: 'movie' }
+    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie' }, // просмотренный
+    { id: 303, title: 'Свежий со второй страницы', release_date: '2026-01-01', media_type: 'movie' }
 ] }, true)
 assert.ok(comp.built.every(r => r.id !== 100), 'просмотренный не пролез со страницы 2')
-assert.ok(comp.built.some(r => r.id === 302), 'новый со страницы 2 добавлен')
+assert.ok(comp.built.some(r => r.id === 303), 'новый со страницы 2 добавлен')
 state.fields.top_trackers_only = 'true'
 console.log('✓ «скрыть просмотренные»: 4 источника + имя-ключ ловит tv/movie')
 

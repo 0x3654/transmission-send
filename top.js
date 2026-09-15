@@ -230,37 +230,41 @@
             var net  = new Lampa.Reguest()
 
             hideWatched(comp)
+            dedupeCards(comp)
 
-            // есть ли у карточки раздача на трекерах под наши фильтры
-            function findByTrackers(el, cb){
-                var base  = serverUrl()
-                // трекеры ищут по русскому названию — локализованный title первым
-                var query = el.title || el.name || el.original_title || el.original_name || ''
-
-                if(!base || !query) return cb(el)
-
-                net.timeout(30000)
-
-                net.silent(base + '/find?query=' + encodeURIComponent(query) +
-                    '&year=' + ((el.release_date || el.first_air_date || '') + '').slice(0, 4) +
-                    '&type=' + (el.name ? 'tv' : 'movie') + filtersParams(),
-                function(r){
-                    cb(r && r.found ? el : null)
-                }, function(){
-                    cb(el) // сервер недоступен — карточку не теряем
-                })
-            }
-
+            // есть ли у карточек раздачи на трекерах под наши фильтры:
+            // один батч-запрос на страницу (внутри сервер кэширует по 12ч),
+            // трекеры ищут по русскому названию — локализованный title первым
             function filterByTrackers(json, cb){
                 if(String(Lampa.Storage.field('top_trackers_only')) !== 'true' || !json.results || !json.results.length){
                     return cb()
                 }
 
-                mapLimit(json.results, 4, findByTrackers, function(kept){
-                    json.results = kept.filter(Boolean)
+                var base = serverUrl()
+
+                if(!base) return cb()
+
+                var payload = json.results.map(function(el){
+                    return {
+                        query: el.title || el.name || el.original_title || el.original_name || '',
+                        year: parseInt(((el.release_date || el.first_air_date || '') + '').slice(0, 4), 10) || 0,
+                        type: el.name ? 'tv' : 'movie'
+                    }
+                })
+
+                net.timeout(60000)
+
+                net.silent(base + '/findbatch' + filtersParams(), function(r){
+                    if(r && r.found && r.found.length === json.results.length){
+                        json.results = json.results.filter(function(el, i){
+                            return r.found[i] !== false
+                        })
+                    }
 
                     cb()
-                })
+                }, function(){
+                    cb() // сервер недоступен — карточки не теряем
+                }, JSON.stringify(payload))
             }
 
             function load(page, ok, fail){
@@ -394,6 +398,28 @@
             return set
         }
 
+        // дедуп между страницами: TMDB-тренды пересортировываются между запросами,
+        // один и тот же фильм может приехать повторно со следующей страницей
+        function dedupeCards(comp){
+            var origAppend = comp.append.bind(comp)
+            var seen = {}
+
+            comp.append = function(data, append){
+                if(data && data.results){
+                    data.results = data.results.filter(function(el){
+                        var key = (el.name ? 'tv' : 'movie') + ':' + el.id
+
+                        if(seen[key]) return false
+                        seen[key] = true
+
+                        return true
+                    })
+                }
+
+                return origAppend(data, append)
+            }
+        }
+
         // фильтр вешается на append: первая страница идёт через build→append,
         // а страницы 2+ (пагинация «Топ · TMDB» листается бесконечно) — напрямую
         // через append, и раньше просмотренные пролезали именно оттуда
@@ -512,6 +538,7 @@
             var sort = object.top_sort || field('top_trackers_sort') || 'seeds'
 
             hideWatched(comp)
+            dedupeCards(comp)
 
             comp.create = function(){
                 var base = serverUrl()
