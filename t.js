@@ -1,8 +1,8 @@
 /*
     t — bootstrap-плагин Lampa (lampa.mx)
 
-    Короткий URL для чистой лампы (вводится с пульта один раз):
-    https://0x3654.github.io/transmission-send/t.js
+    Короткий адрес для ввода с пульта (user-site GitHub Pages, корень):
+    https://0x3654.github.io/t.js
 
       • доустанавливает плагины (top, transmission-send) — при каждом
         старте, если плагина нет в списке; отключённые (выключенные)
@@ -12,8 +12,20 @@
       • повторно настройки применяются только после повышения VERSION —
         поправили CONFIG → подняли версию → при следующем запуске
         настройки перезапишутся заново (руками сделанное затрётся)
+      • TorrServer: основная ссылка — сервер на micro, дополнительная —
+        встроенный (http://127.0.0.1:8090). Активная ссылка выбирается
+        пробой при каждом запуске: локальный TorrServer отвечает —
+        «дополнительная», нет — «основная». Сам автозапуск встроенного
+        TorrServer плагином не включается (нет моста в нативное меню) —
+        один раз включите руками: Настройки → Настройки (внизу списка) →
+        TorrServer/автозапуск. Ручной выбор ссылки уважается: изменили
+        «Использовать ссылку» сами — bootstrap больше её не трогает
+        (до повышения VERSION)
 
     Установка: Настройки → Расширения → «+» → URL этого файла.
+
+    Копия для длинного URL живёт в репо transmission-send (t.js) —
+    при правке CONFIG синхронизировать оба файла.
 */
 
 (function(){
@@ -25,7 +37,7 @@
     window[FLAG] = true
 
     // поднять после правки CONFIG — настройки применятся заново
-    var VERSION = '1'
+    var VERSION = '2'
 
     var CONFIG = {
         plugins: [
@@ -38,9 +50,10 @@
             // сервер «Топа · трекеров» (tracker-top на micro, tsdproxy)
             top_server_url: 'https://micro-tracker.koi-uaru.ts.net',
 
-            // TorrServer на micro (tsdproxy);
-            // встроенный в tvOS-приложение TorrServer — 'http://127.0.0.1:8090'
+            // TorrServer: основная — micro (tsdproxy), дополнительная —
+            // встроенный TorrServer приложения (Apple TV/Android/macOS)
             torrserver_url: 'https://torrserver.koi-uaru.ts.net',
+            torrserver_url_two: 'http://127.0.0.1:8090',
 
             // фильтры топа (значения — как в настройках плагина top)
             top_min_quality:  '1080',
@@ -56,6 +69,48 @@
             // «Топ» вместо главной
             top_as_home: 'true'
         }
+    }
+
+    // отвечает ли локальный TorrServer (встроенный в приложение)
+    function probeLocal(cb){
+        var tries = 2
+
+        ;(function attempt(){
+            var xhr = new XMLHttpRequest()
+            var done = false
+
+            function finish(alive){
+                if(done) return
+                done = true
+
+                if(alive || !--tries) cb(alive)
+                else setTimeout(attempt, 400)
+            }
+
+            xhr.open('HEAD', 'http://127.0.0.1:8090', true)
+            xhr.timeout = 1200
+            xhr.onload = function(){ finish(xhr.status > 0) }
+            xhr.onerror = xhr.ontimeout = function(){ finish(false) }
+
+            try{ xhr.send() }
+            catch(e){ finish(false) }
+        })()
+    }
+
+    // «использовать ссылку»: два — локальный TorrServer жив, один — micro;
+    // пробуем только там, где локальный вообще бывает, на остальном — «один»
+    function pickLink(cb){
+        var Lampa = window.Lampa
+        var local = false
+
+        try{
+            local = Lampa.Platform.is('apple_tv') || Lampa.Platform.is('android') || Lampa.Platform.macOS()
+        }
+        catch(e){}
+
+        if(!local) return cb('one')
+
+        probeLocal(function(alive){ cb(alive ? 'two' : 'one') })
     }
 
     function init(){
@@ -89,18 +144,47 @@
 
         // настройки — только при первом запуске (или после повышения VERSION)
         var MARKER = 'boot_ver'
-        var applied = false
+        var LINK   = 'torrserver_use_link'
+        var MEM    = 'boot_link_written'
+        var reload = false
 
-        try{ applied = Lampa.Storage.get(MARKER) === VERSION }
-        catch(e){}
+        try{
+            if(Lampa.Storage.get(MARKER) !== VERSION){
+                for(var key in CONFIG.storage) Lampa.Storage.set(key, CONFIG.storage[key])
 
-        if(!applied){
-            for(var key in CONFIG.storage) Lampa.Storage.set(key, CONFIG.storage[key])
+                Lampa.Storage.set(MARKER, VERSION)
+                Lampa.Storage.set(MEM, '') // вернуться к авто-выбору ссылки
 
-            Lampa.Storage.set(MARKER, VERSION)
-
-            setTimeout(function(){ window.location.reload() }, 700)
+                reload = true
+            }
         }
+        catch(e){ reload = true }
+
+        // активная ссылка TorrServer — пробой при каждом запуске;
+        // значение, изменённое не нами, трогаем только после VERSION
+        var cur     = String(Lampa.Storage.get(LINK) || '')
+        var written = String(Lampa.Storage.get(MEM) || '')
+
+        function done(){
+            if(reload) setTimeout(function(){ window.location.reload() }, 700)
+        }
+
+        if(!written || cur === written){
+            pickLink(function(link){
+                if(link !== cur || !written){
+                    try{
+                        Lampa.Storage.set(LINK, link)
+                        Lampa.Storage.set(MEM, link)
+
+                        reload = true
+                    }
+                    catch(e){}
+                }
+
+                done()
+            })
+        }
+        else done()
     }
 
     if(window.appready) init()
