@@ -110,9 +110,32 @@
             { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
 
-        // найденные раздачи по id из последнего батча (память плагина):
-        // вторая сборка экрана строится по ним мгновенно, без запроса
+        // найденные раздачи по id из последнего батча: живёт в Storage,
+        // переживает перезапуск PWA — первый показ «Топа · TMDB» уже чистый
         var batchFound = {}
+
+        ;(function loadBatch(){
+            try{
+                var saved = Lampa.Storage.get('top_batch_found', '{}')
+
+                if(saved && typeof saved === 'object') batchFound = saved
+            }
+            catch(e){}
+        })()
+
+        function saveBatch(){
+            try{
+                var keys = Object.keys(batchFound)
+
+                if(keys.length > 3000){ // не растём бесконечно
+                    keys.sort()
+                    for(var i = 0; i < keys.length - 3000; i++) delete batchFound[keys[i]]
+                }
+
+                Lampa.Storage.set('top_batch_found', batchFound)
+            }
+            catch(e){}
+        }
 
         //---------- лист фильтров «как в торрентах»: строки с вложенным выбором
 
@@ -304,6 +327,8 @@
 
                         if(r.found[i] === false) toHide[el.id] = true
                     })
+
+                    saveBatch()
 
                     if(!Object.keys(toHide).length) return
 

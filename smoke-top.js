@@ -159,6 +159,8 @@ assert.strictEqual(calls.tmdb[calls.tmdb.length - 1].params.page, 3)
 assert.strictEqual(resolved.results[0].id, 1)
 console.log('✓ TopScreen: последний вариант из Storage + пагинация')
 
+// память батча персистится в Storage
+assert.deepStrictEqual(state.storage.top_batch_found, undefined)
 // --- 3b. «Топ · TMDB» неблокирующий фильтр раздач: экран строится сразу,
 // батч фоном; при found=false экран пересобирается по памяти плагина
 state.fields.top_server_url = 'http://10.1.1.1:8355'
@@ -198,7 +200,10 @@ state.findBatchJson = { found: [false] } // батч спросит только
     const batchUrl = calls.findBatches[calls.findBatches.length - 1]
     assert.ok(batchUrl.startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET на нужный эндпоинт')
     assert.ok(decodeURIComponent(batchUrl).includes('Свежий дрейф'), 'батч спросил только неизвестный id')
-    // повторная сборка (переоткрытие): память уже знает id 5 — фильтр без запроса
+    // память записана в Storage
+assert.ok(state.storage.top_batch_found && state.storage.top_batch_found[5] === false, 'batchFound персистится')
+
+// повторная сборка (переоткрытие): память уже знает id 5 — фильтр без запроса
     const before = calls.findBatches.length
     state.tmdbResponse = driftResults()
     const c3b = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
