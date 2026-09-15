@@ -400,7 +400,7 @@ func main() {
 		ru := param(q, "ru", "1") != "0"
 
 		found := make([]bool, len(req))
-		sem := make(chan struct{}, 6)
+		sem := make(chan struct{}, 2) // бережём NNM: 503 при лавине
 		var wg sync.WaitGroup
 		for i := range req {
 			wg.Add(1)

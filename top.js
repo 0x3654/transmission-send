@@ -315,8 +315,18 @@
                     },
                     { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
                     { title: T('settings_trackers_only') + ': ' + yesNo('top_trackers_only'), toggle: 'top_trackers_only' },
-                    { title: T('settings_ru_titles') + ': ' + yesNo('top_ru_titles'), toggle: 'top_ru_titles' }
-                ])
+                    { title: T('settings_ru_titles') + ': ' + yesNo('top_ru_titles'), toggle: 'top_ru_titles' },
+                    // фильтры раздач: проверка «только с раздачами» уже ходит
+                    // в /findbatch с этими же параметрами — теперь ими можно
+                    // управлять прямо с этого экрана
+                    { title: T('settings_min_quality') + ': ' + (QUALITY[field('top_min_quality')] || QUALITY.any), values: QUALITY, key: 'top_min_quality' },
+                    { title: T('settings_voice_1') + ': ' + (VOICES[field('top_voice_1')] || VOICES.any), values: VOICES, key: 'top_voice_1' },
+                    { title: T('settings_voice_2') + ': ' + (VOICES[field('top_voice_2')] || VOICES.any), values: VOICES, key: 'top_voice_2' },
+                    { title: T('settings_no_cam') + ': ' + yesNo('top_no_cam'), toggle: 'top_no_cam' },
+                    { title: '↻ ' + T('apply'), go: true }
+                ], function(){
+                    pushVariant(VARIANTS[lastVariantIndex()]) // пересобрать текущий вариант
+                })
             }
 
             return comp

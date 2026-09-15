@@ -51,7 +51,16 @@ var nnmVideoRoots = map[int]bool{
 	620: true, 624: true, 628: true, // аниме
 }
 
+// NNM ограничивает частоту (при лавине отвечает 503): все запросы к нему —
+// через общий семафор, не больше двух одновременно
+var nnmSem = make(chan struct{}, 2)
+
 func fetch(url string) (string, error) {
+	if strings.Contains(url, nnmBase) {
+		nnmSem <- struct{}{}
+		defer func() { <-nnmSem }()
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -328,6 +337,11 @@ func cp1251Escape(s string) string {
 
 // fetchPost — форма urlencoded (поиск NNM)
 func fetchPost(u, form string) (string, error) {
+	if strings.Contains(u, nnmBase) {
+		nnmSem <- struct{}{}
+		defer func() { <-nnmSem }()
+	}
+
 	req, err := http.NewRequest("POST", u, strings.NewReader(form))
 	if err != nil {
 		return "", err
