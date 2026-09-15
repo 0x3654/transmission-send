@@ -258,11 +258,6 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
 		"|voice:" + voices + "|ru:" + ru + "|" + sort
 
-	// фоновое обновление базы — только когда клиент начал с первой страницы:
-	// глубже листает из старой базы, не дёргая трекеры заново
-	refresh := pages == 0 || pages == 1
-	_ = refresh
-
 	cacheMu.Lock()
 	if e, ok := cache[key]; ok {
 		if time.Since(e.ts) < time.Duration(ttl)*time.Second {
@@ -270,8 +265,9 @@ func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Pay
 			return e.payload, true, nil
 		}
 		// stale-while-revalidate: старое отдаём сразу, свежее собираем фоном —
-		// первый запрос к медленному трекеру не блокирует экран
-		if !e.busy && refresh {
+		// первый запрос к медленному трекеру не блокирует экран; busy не даёт
+		// параллельных сборок, листание со второй страницы едет из живого кэша
+		if !e.busy {
 			e.busy = true
 			cache[key] = e
 			cacheMu.Unlock()
@@ -610,6 +606,16 @@ func main() {
 				pages = n
 			}
 		}
+		page := 0
+		if n, e := strconv.Atoi(param(q, "page", "0")); e == nil && n > 0 {
+			page = n
+		}
+		slice := 20
+		if v := param(q, "slice", ""); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 && n <= 100 {
+				slice = n
+			}
+		}
 		minq := param(q, "minq", "") // "" | 720 | 1080 | 2160
 		voices := param(q, "voice", "")
 		ru := param(q, "ru", "1") // 1 — скрывать названия без русских букв
@@ -628,6 +634,23 @@ func main() {
 		}
 		payload.Cached = cached
 		payload.Items = filterItems(payload.Items, minq, audio)
+
+		// клиент листает базу постранично: page=N — срез; первая страница
+		// заодно запускает фоновое обновление базы (внутри getTop)
+		if page > 0 {
+			total := (len(payload.Items) + slice - 1) / slice
+			lo := (page - 1) * slice
+			if lo > len(payload.Items) {
+				lo = len(payload.Items)
+			}
+			hi := lo + slice
+			if hi > len(payload.Items) {
+				hi = len(payload.Items)
+			}
+			payload.Page = page
+			payload.TotalPages = total
+			payload.Items = payload.Items[lo:hi]
+		}
 
 		writeJSON(w, 200, payload)
 	})
