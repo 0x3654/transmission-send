@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const cacheVer = "v4" // версия логики фильтров: смена инвалидирует кэш на томе
+const cacheVer = "v5" // версия логики фильтров: смена инвалидирует кэш на томе
 
 var (
 	nnmBase   = env("NNM_BASE", "https://nnmclub.to")

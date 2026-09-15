@@ -137,7 +137,7 @@ var (
 	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
 	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
-	camRe   = regexp.MustCompile(`(?i)\b(cam|ts|tc|hdts|telesync|telecine|scr)\b|camrip|зрительный зал`)
+	camRe   = regexp.MustCompile(`(?i)\b(cam|ts|tc|hdts|telesync|telecine|scr|tsrip|hdts)\b|\bts-?rip\b|camrip|зрительный зал`)
 	voiceRe = regexp.MustCompile(`(?i)(LostFilm|Кубик в Кубе|NewStudio|Jaskier|Red ?Head Sound|` +
 		`HDrezka(?: Studio)?|Kerob|TVShows|MetalVoice|Amazing Dubbing|Синема УС)`)
 )
@@ -405,15 +405,9 @@ func findItems(query string) []Item {
 
 	// поиск NNM работает только POST-ом (GET с кириллицей молча не ищет)
 	if body, err := fetchPost(nnmBase+"/forum/tracker.php", "nm="+cp1251Escape(query)); err == nil {
-		// на странице поиска нет селекта разделов: поддерево берём из
-		// последней страницы топа (nnmTop его обновляет), пусто — не фильтруем,
-		// нас прикрывают junk/ru/год и видеопризнак ниже
-		video := lastVideoTree()
-		for _, it := range parseNNM(body) {
-			if len(video) == 0 || video[it.ForumID] {
-				items = append(items, it)
-			}
-		}
+		// у страницы поиска нет колонки форума (ForumID=0) — по разделам не
+		// фильтруем; мусор прикрывают junk/ru/год-допуск и видеопризнак
+		items = append(items, parseNNM(body)...)
 	} else {
 		log.Printf("find nnm: %v", err)
 	}
