@@ -256,7 +256,8 @@
 
                 net.timeout(60000)
 
-                net.silent(base + '/findbatch' + filtersParams(), function(r){
+                // GET: не зависит от кодирования POST-тела средствами Lampa
+                net.silent(base + '/findbatch?items=' + encodeURIComponent(JSON.stringify(payload)) + filtersParams(), function(r){
                     if(r && r.found && r.found.length === json.results.length){
                         json.results = json.results.filter(function(el, i){
                             return r.found[i] !== false
@@ -266,7 +267,7 @@
                     cb()
                 }, function(){
                     cb() // сервер недоступен — карточки не теряем
-                }, JSON.stringify(payload))
+                })
             }
 
             // «Только на русском»: карточки без русских букв в названии
@@ -337,7 +338,7 @@
             var field2 = function(name){ return String(Lampa.Storage.field(name)) }
             var minq  = field2('top_min_quality')
             var junk  = field2('top_no_cam') === 'false' ? '0' : '1'
-            var ru    = field2('top_russian_only') === 'false' ? '0' : '1'
+            var ru    = field2('top_ru_titles') === 'false' ? '0' : '1'
 
             var voices = []
 
@@ -372,7 +373,7 @@
                 if(v && v !== 'any' && voices.indexOf(v) === -1) voices.push(v)
             })
 
-            var ru = field('top_russian_only') === 'false' ? '0' : '1'
+            var ru = field('top_ru_titles') === 'false' ? '0' : '1'
 
             return '/top?cat=video&pages=' + pages +
                 '&sort=' + (sort || 'seeds') +
@@ -608,6 +609,14 @@
                             results.push(el)
                         }
 
+                        // единый «Только на русском»: карточка без кириллицы
+                        // (у TMDB нет русской локализации) не показывается
+                        if(field('top_ru_titles') !== 'false'){
+                            results = results.filter(function(el){
+                                return /[А-Яа-яЁё]/.test(el.title || el.name || '')
+                            })
+                        }
+
                         if(!results.length) comp.empty()
                         else{
                             comp.build({ results: results, total_pages: 1 })
@@ -640,7 +649,7 @@
                     { title: T('settings_voice_2') + ': ' + (VOICES[field('top_voice_2')] || VOICES.any), values: VOICES, key: 'top_voice_2' },
                     { title: T('settings_hide_watched') + ': ' + yesNo('top_hide_watched'), toggle: 'top_hide_watched' },
                     { title: T('settings_no_cam') + ': ' + yesNo('top_no_cam'), toggle: 'top_no_cam' },
-                    { title: T('settings_russian_only') + ': ' + yesNo('top_russian_only'), toggle: 'top_russian_only' },
+                    { title: T('settings_ru_titles') + ': ' + yesNo('top_ru_titles'), toggle: 'top_ru_titles' },
                     { title: '↻ ' + T('apply'), go: true }
                 ], function(){
                     Lampa.Storage.set('top_trackers_sort', field('top_trackers_sort') || 'seeds')
@@ -804,19 +813,6 @@
             field: {
                 name: T('settings_hide_watched'),
                 description: T('settings_hide_watched_desc')
-            }
-        })
-
-        Lampa.SettingsApi.addParam({
-            component: 'top',
-            param: {
-                name: 'top_russian_only',
-                type: 'trigger',
-                default: true
-            },
-            field: {
-                name: T('settings_russian_only'),
-                description: T('settings_russian_only_desc')
             }
         })
 

@@ -367,19 +367,28 @@ func main() {
 		writeJSON(w, 200, map[string]any{"ok": true, "rev": rev, "nnm": nnmBase, "rutor": rutorBase})
 	})
 
-	// батч-проверка наличия раздач: один запрос на страницу «Топ · TMDB»
-	mux.HandleFunc("POST /findbatch", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeJSON(w, 400, map[string]string{"error": err.Error()})
-			return
+	// батч-проверка наличия раздач: один запрос на страницу «Топ · TMDB».
+	// GET: ?items=[{"query","year","type"},…]; POST: тот же JSON в теле
+	findbatch := func(w http.ResponseWriter, r *http.Request) {
+		var raw []byte
+
+		if items := r.URL.Query().Get("items"); items != "" {
+			raw = []byte(items)
+		} else {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				writeJSON(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			raw = b
 		}
+
 		var req []struct {
 			Query string `json:"query"`
 			Year  int    `json:"year"`
 			Type  string `json:"type"`
 		}
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(raw, &req); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "bad json: " + err.Error()})
 			return
 		}
@@ -405,7 +414,10 @@ func main() {
 		wg.Wait()
 
 		writeJSON(w, 200, map[string]any{"found": found})
-	})
+	}
+
+	mux.HandleFunc("GET /findbatch", findbatch)
+	mux.HandleFunc("POST /findbatch", findbatch)
 
 	// есть ли у фильма раздача под наши фильтры — для «Топ · TMDB»
 	mux.HandleFunc("GET /find", func(w http.ResponseWriter, r *http.Request) {

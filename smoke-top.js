@@ -108,7 +108,7 @@ const fire = (type, e) => (listeners[type] || []).forEach(fn => fn(e))
 assert.ok(calls.components['top_screen'] && calls.components['top_trackers'])
 assert.strictEqual(calls.menu.length, 2)
 assert.deepStrictEqual(calls.params.map(p => p.param.name),
-    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_russian_only', 'top_trackers_only', 'top_ru_titles', 'top_no_cam'])
+    ['top_server_url', 'top_as_home', 'top_min_quality', 'top_voice_1', 'top_voice_2', 'top_hide_watched', 'top_trackers_only', 'top_ru_titles', 'top_no_cam'])
 assert.strictEqual(calls.params[0].param.values, 'string', 'input обязан иметь values:string (иначе краш настроек Lampa)')
 {
     const sel = calls.params[2].param.values
@@ -149,7 +149,7 @@ state.fields.top_server_url = 'http://10.1.1.1:8355'
 state.fields.top_trackers_only = 'true'
 state.fields.top_min_quality = 'any'
 state.fields.top_no_cam = 'true'
-state.fields.top_russian_only = 'true'
+state.fields.top_ru_titles = 'true'
 state.fields.top_voice_1 = 'any'
 state.fields.top_voice_2 = 'any'
 const mkResults = () => ({ results: [
@@ -165,7 +165,7 @@ state.findBatchJson = { found: [true, true] } // найдены…
     assert.deepStrictEqual(c2.built.map(r => r.id), [1, 2], 'русская карточка с раздачей на месте, без кириллицы (id 4) скрыта')
     const batches = (calls.findBatches || []).length
     assert.strictEqual(batches, 1, 'один батч-запрос на страницу, не поштучные /find')
-    assert.ok(calls.findBatches[0].startsWith('https://10.1.1.1:8355/findbatch'), 'батч на нужный эндпоинт (http принудительно https)')
+    assert.ok(calls.findBatches[0].startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET с items= (http принудительно https)')
     assert.ok(!calls.urls.some(u => u.includes('/find?')), 'поштучных /find больше нет')
 }
 state.findBatchJson = { found: [true, false] } // вторая без раздачи
@@ -242,6 +242,30 @@ comp.create()
 assert.strictEqual(comp.built.length, 1, 'софт отсеян матчингом')
 assert.strictEqual(comp.built[0].quality, '4K', 'бейдж качества на карточке')
 console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
+
+// --- 4c. «Топ · трекеры»: единый «Только на русском» — латинская карточка скрыта
+state.serverJson = { items: [
+    { ru: 'Джек Ричер', orig: 'Reacher', year: 2026, season: true, quality: '1080' },
+    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' }
+] }
+state.tmdbResponse = { results: [
+    { id: 500, name: 'Reacher', first_air_date: '2026-01-01', media_type: 'tv', popularity: 90 },       // нет ру-локализации
+    { id: 100, title: 'Холоп 3', release_date: '2026-01-01', media_type: 'movie', popularity: 50 }
+] }
+{
+    const c8 = new calls.components['top_trackers']({ page: 1 })
+    c8.create()
+    assert.deepStrictEqual(c8.built.map(r => r.id), [100], 'латинская карточка (Reacher) скрыта единым тумблером')
+    assert.ok(calls.urls[calls.urls.length - 1].includes('ru=1'), 'серверный ru= от того же тумблера')
+}
+state.fields.top_ru_titles = 'false'
+{
+    const c9 = new calls.components['top_trackers']({ page: 1 })
+    c9.create()
+    assert.deepStrictEqual(c9.built.map(r => r.id).sort(), [100, 500], 'выключен — латинская карточка видна, ru=0 в запросе')
+    assert.ok(calls.urls[calls.urls.length - 1].includes('ru=0'))
+}
+state.fields.top_ru_titles = 'true'
 
 // --- 5. озвучки выключены → voice в запросе нет
 state.fields.top_voice_1 = 'any'
