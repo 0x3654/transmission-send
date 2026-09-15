@@ -237,6 +237,9 @@
             var comp = new Lampa.InteractionCategory(object)
             var net  = new Lampa.Reguest()
 
+            // trackCards — самой глубокой: видит финальный набор карточек
+            // (после фильтров просмотренных и дедупа) и даёт topRemoveIds
+            trackCards(comp)
             hideWatched(comp)
             dedupeCards(comp)
 
@@ -294,18 +297,22 @@
                 net.silent(base + '/findbatch?items=' + encodeURIComponent(JSON.stringify(payload)) + filtersParams(), function(r){
                     if(!r || !r.found || r.found.length !== unknown.length) return
 
-                    var needRebuild = false
+                    var toHide = {}
 
                     unknown.forEach(function(el, i){
                         batchFound[el.id] = r.found[i]
 
-                        if(r.found[i] === false) needRebuild = true
+                        if(r.found[i] === false) toHide[el.id] = true
                     })
 
-                    if(!needRebuild) return
+                    if(!Object.keys(toHide).length) return
 
+                    // точечное удаление карточек — экран не моргает;
+                    // fallback (DOM недоступен) — тихая пересборка
                     try{
                         var act = Lampa.Activity.active()
+
+                        if(act && act.component === 'top_screen' && comp.topRemoveIds && comp.topRemoveIds(toHide)) return
 
                         if(act && act.component === 'top_screen') Lampa.Activity.replace({})
                     }
@@ -456,6 +463,45 @@
             })
 
             return set
+        }
+
+        // связь «показанные карточки ↔ DOM»: позволяет точечно удалять
+        // карточки (например, когда фоновый батч выяснил, что раздачи нет)
+        // без пересборки экрана — экран не моргает
+        function trackCards(comp){
+            var origAppend = comp.append.bind(comp)
+            var shown = []
+            var bodyEl = null
+
+            comp.append = function(data, append){
+                origAppend(data, append)
+
+                if(data && data.results) shown = shown.concat(data.results)
+
+                if(!bodyEl && comp.render && comp.render(true)){
+                    var html = comp.render(true)
+                    bodyEl = html.querySelector ? html.querySelector('.category-full') : null
+                }
+            }
+
+            // удалить карточки с перечисленными id; true — что-то удалили
+            comp.topRemoveIds = function(ids){
+                if(!bodyEl || !bodyEl.children || bodyEl.children.length !== shown.length){
+                    return false // DOM недоступен или разошёлся — честный fallback
+                }
+
+                var removed = false
+
+                for(var i = shown.length - 1; i >= 0; i--){
+                    if(ids[shown[i].id]){
+                        bodyEl.removeChild(bodyEl.children[i])
+                        shown.splice(i, 1)
+                        removed = true
+                    }
+                }
+
+                return removed
+            }
         }
 
         // дедуп между страницами: TMDB-тренды пересортировываются между запросами,

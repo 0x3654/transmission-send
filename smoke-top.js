@@ -14,9 +14,16 @@ const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null, f
 function InteractionCategory(object){
     this.object = object
     this.activity = { loader(){}, toggle(){} }
-    this.append = (data) => { this.built = (this.built || []).concat((data && data.results) || []) }
+    // фейковый DOM: дети добавляются по одному на карточку, как в реальном классе
+    const body = { children: [], removeChild(c){ this.children = this.children.filter(x => x !== c) } }
+    this.append = (data) => {
+        (data && data.results || []).forEach((r) => body.children.push({ id: r.id }))
+        this.built = (this.built || []).concat((data && data.results) || [])
+    }
+    this.topDomIds = () => body.children.map(c => c.id)
     this.build = (data) => { this.append(data) } // как в реальном классе: build зовёт append
     this.empty = () => { this.emptied = true }
+    this.render = () => ({ querySelector: (sel) => (sel === '.category-full' ? body : null) })
 }
 
 function Reguest(){
@@ -177,19 +184,20 @@ state.findBatchJson = { found: [false] } // батч спросит только
 {
     const c3 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c3.create()
-    assert.deepStrictEqual(c3.built.map(r => r.id), [1, 2, 5], 'сначала показываем всё (батч фоном)')
-    assert.strictEqual(calls.replace.length, 1, 'батч нашёл карточку без раздач — экран перезапущен')
+    assert.strictEqual(calls.replace.length, 0, 'моргания нет: экран НЕ перезапущен')
+    assert.deepStrictEqual(c3.topDomIds(), [1, 2], 'карточка без раздачи удалена точечно из DOM построенного экрана')
+    calls.replace.length = 0 // сбросим для следующих проверок
     const batchUrl = calls.findBatches[calls.findBatches.length - 1]
     assert.ok(batchUrl.startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET на нужный эндпоинт')
     assert.ok(decodeURIComponent(batchUrl).includes('Свежий дрейф'), 'батч спросил только неизвестный id')
-    // «после replace»: batchFound в памяти — фильтр применяется без запроса
+    // повторная сборка (переоткрытие): память уже знает id 5 — фильтр без запроса
     const before = calls.findBatches.length
     state.tmdbResponse = driftResults()
     const c3b = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c3b.create()
-    assert.deepStrictEqual(c3b.built.map(r => r.id), [1, 2], 'вторая сборка отфильтрована по памяти (id 5 скрыт)')
+    assert.deepStrictEqual(c3b.built.map(r => r.id), [1, 2], 'повторная сборка отфильтрована по памяти (id 5 скрыт)')
     assert.strictEqual(calls.findBatches.length, before, 'нового батча не потребовалось')
-    assert.strictEqual(calls.replace.length, 1, 'цикла пересборок нет (нечего скрывать)')
+    assert.strictEqual(calls.replace.length, 0, 'циклов пересборки нет')
 }
 // тумблер выключен — батч вообще не зовётся
 state.fields.top_trackers_only = 'false'
