@@ -51,7 +51,8 @@ type Item struct {
 	Source    string `json:"source"`
 	Quality   string `json:"quality"` // 2160 | 1080 | 720 | sd
 	Dub       bool   `json:"dub"`
-	Mvo       bool   `json:"mvo"` // многоголосая озвучка (MVO, «| P» у rutor)
+	Mvo       bool   `json:"mvo"`                // многоголосая озвучка (MVO, «| P» у rutor)
+	SubOnly   bool   `json:"sub_only,omitempty"` // только субтитры («| Sub»), русского звука нет
 	TsSound   bool   `json:"ts_sound"`
 	Cam       bool   `json:"cam"` // камрип/телефильм-скринка
 	Voice     string `json:"voice,omitempty"`
@@ -99,13 +100,18 @@ func hasCyrillic(s string) bool {
 	return false
 }
 
-// filterRussian: ru=1 — прятать раздачи совсем без русских букв в названии
+// filterRussian: ru=1 — раздача обязана нести русский контент: кириллица
+// в названии И не «субтитры без озвучки» (rutor «| Sub») — иначе фильм
+// без русского звука проникает в топ
 func filterRussian(items []Item, ru string) []Item {
 	if ru != "1" {
 		return items
 	}
 	out := make([]Item, 0, len(items))
 	for _, it := range items {
+		if it.SubOnly {
+			continue
+		}
 		if hasCyrillic(it.Ru) || hasCyrillic(it.Orig) {
 			out = append(out, it)
 		}
@@ -207,8 +213,18 @@ func dedupeFilms(items []Item) []Item {
 	return out
 }
 
-// betterRelease: не-камрип лучше камрипа, дальше выше качество, при равенстве — больше размер
+// hasRuVoice — русский звук: дубляж, многоголоска или известная студия
+func hasRuVoice(it Item) bool {
+	return it.Dub || it.Mvo || it.Voice != ""
+}
+
+// betterRelease: раздача с русским звуком лучше беззвучной, не-камрип лучше
+// камрипа, дальше выше качество, при равенстве — больше размер
 func betterRelease(a, b Item) bool {
+	ra, rb := hasRuVoice(a), hasRuVoice(b)
+	if ra != rb {
+		return ra
+	}
 	if a.Cam != b.Cam {
 		return !a.Cam
 	}

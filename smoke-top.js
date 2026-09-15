@@ -200,8 +200,8 @@ state.findBatchJson = { found: [false] } // батч спросит только
     const batchUrl = calls.findBatches[calls.findBatches.length - 1]
     assert.ok(batchUrl.startsWith('https://10.1.1.1:8355/findbatch?items='), 'батч GET на нужный эндпоинт')
     assert.ok(decodeURIComponent(batchUrl).includes('Свежий дрейф'), 'батч спросил только неизвестный id')
-    // память записана в Storage
-assert.ok(state.storage.top_batch_found && state.storage.top_batch_found[5] === false, 'batchFound персистится')
+    // память записана в Storage с ключом фильтров
+assert.ok(state.storage.top_batch_found && state.storage.top_batch_found.map && state.storage.top_batch_found.map[5] === false, 'batchFound персистится c ключом фильтров')
 
 // повторная сборка (переоткрытие): память уже знает id 5 — фильтр без запроса
     const before = calls.findBatches.length

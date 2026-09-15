@@ -111,17 +111,28 @@
         ]
 
         // найденные раздачи по id из последнего батча: живёт в Storage,
-        // переживает перезапуск PWA — первый показ «Топа · TMDB» уже чистый
+        // переживает перезапуск PWA — первый показ «Топа · TMDB» уже чистый.
+        // Ключ — текущие фильтры: сменили качество/озвучку/CAM — память сброшена
+        var batchKey = ''
         var batchFound = {}
 
-        ;(function loadBatch(){
+        function resetBatchIfFiltersChanged(){
+            var key = filtersParams()
+
+            if(key === batchKey) return
+
+            batchKey = key
+            batchFound = {}
+
             try{
                 var saved = Lampa.Storage.get('top_batch_found', '{}')
 
-                if(saved && typeof saved === 'object') batchFound = saved
+                if(saved && typeof saved === 'object' && saved.key === key) batchFound = saved.map
             }
             catch(e){}
-        })()
+        }
+
+        ;(function loadBatch(){ resetBatchIfFiltersChanged() })()
 
         function saveBatch(){
             try{
@@ -132,7 +143,7 @@
                     for(var i = 0; i < keys.length - 3000; i++) delete batchFound[keys[i]]
                 }
 
-                Lampa.Storage.set('top_batch_found', batchFound)
+                Lampa.Storage.set('top_batch_found', { key: batchKey, map: batchFound })
             }
             catch(e){}
         }
@@ -354,6 +365,7 @@
 
                 Lampa.Api.sources.tmdb.get(object.top_method, params, function(json){
                     filterRuTitles(json)
+                    resetBatchIfFiltersChanged()
                     applyBatch(json) // мгновенно по предыдущему батчу
                     ok(json)
                     warmTrackers(json) // фоном, без ожидания

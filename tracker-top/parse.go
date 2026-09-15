@@ -128,6 +128,7 @@ var (
 	mvoRe      = regexp.MustCompile(`(?i)mvo|многоголос`)
 	rutorMvoRe = regexp.MustCompile(`\|\s*P\b`)
 	rutorDubRe = regexp.MustCompile(`\|\s*D\b`)
+	rutorSubRe = regexp.MustCompile(`\|\s*Sub\b`)
 	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
 	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
@@ -551,6 +552,7 @@ func parseRutor(body string) []Item {
 			TsSound: tsRe.MatchString(title),
 			Cam:     camRe.MatchString(title),
 			Mvo:     mvoRe.MatchString(title) || rutorMvoRe.MatchString(title),
+			SubOnly: rutorSubRe.MatchString(title) && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title) && !dubRe.MatchString(title) && !mvoRe.MatchString(title),
 			Voice:   voiceOf(title),
 		}
 

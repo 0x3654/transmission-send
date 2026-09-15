@@ -366,3 +366,22 @@ func TestDiskCache(t *testing.T) {
 	check(t, "топ восстановлен", okTop)
 	check(t, "раздача восстановлена", okFind && e.found && e.item.Ru == "Мятеж", okFind)
 }
+
+func TestSubOnlyAndRuVoice(t *testing.T) {
+	check(t, "rutor | Sub", rutorSubRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub"))
+	check(t, "не Sub от D", !subOnlyOf("Фильм (2026) WEB-DL 1080p | D, Sub"))
+
+	items := []Item{
+		{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 300, SubOnly: true}, // rutor Sub
+		{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 200, Dub: true},     // NNM EN/RU
+	}
+	out := filterRussian(items, "1")
+	check(t, "Sub-only вырезан", len(out) == 1 && out[0].Dub, len(out))
+
+	ded := dedupeFilms(items)
+	check(t, "представитель — с русским звуком", len(ded) == 1 && ded[0].Dub && ded[0].Seeders == 500, ded[0].Dub, ded[0].Seeders)
+}
+
+func subOnlyOf(title string) bool {
+	return rutorSubRe.MatchString(title) && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title)
+}
