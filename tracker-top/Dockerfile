@@ -18,6 +18,7 @@ FROM deps AS build
 ARG GIT_REV=unknown
 COPY *.go ./
 COPY cmd/ ./cmd/
+RUN mkdir -p /data && chown 65534:65534 /data
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.rev=${GIT_REV}" -o /out/tracker-top . && \
