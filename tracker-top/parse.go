@@ -132,8 +132,9 @@ var (
 	// признак видеорелиза: игры/софт («PC | Portable», «Repack») его не имеют
 	// и в find-кандидаты попадать не должны
 	videoReleaseRe = regexp.MustCompile(`(?i)\b(1080|720|2160|4k|uhd|dvdrip|webrip|web-?dl|bdrip|hdrip|bdremux|telesync|camrip|tsrip|ts)\b`)
-	// русская дорожка в тех-скобках NNM: «[EN / RU, EN Sub]» — русский звук есть
-	ruTrackRe = regexp.MustCompile(`(?i)\[[^\]]*\bRU\b[^\]]*\]`)
+	// NNM-раздача только с субтитрами: «[EN / RU, EN Sub]» — аудио EN,
+	// RU-строка в скобках это субтитры, русского звука нет
+	nnmSubRe = regexp.MustCompile(`(?i)\[[^\]]*\bSub\b[^\]]*\]`)
 	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
 	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
@@ -513,6 +514,9 @@ func findRelease2(query, orig string, year int, typ string, minq, voices string,
 		if normName(it.Ru) != nq && !(no != "" && normName(it.Orig) == no) {
 			continue
 		}
+		if it.Seeders <= 0 {
+			continue // мёртвая раздача — фейк невышедшего фильма
+		}
 		kept = append(kept, it)
 	}
 
@@ -610,7 +614,6 @@ func parseRutor(body string) []Item {
 			TsSound: tsRe.MatchString(title),
 			Cam:     camRe.MatchString(title),
 			Mvo:     mvoRe.MatchString(title) || rutorMvoRe.MatchString(title),
-			SubOnly: rutorSubRe.MatchString(title) && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title) && !dubRe.MatchString(title) && !mvoRe.MatchString(title),
 			Voice:   voiceOf(title),
 		}
 

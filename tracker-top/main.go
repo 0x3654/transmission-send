@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const cacheVer = "v6" // версия логики фильтров: смена инвалидирует кэш на томе
+const cacheVer = "v8" // версия логики фильтров: смена инвалидирует кэш на томе
 
 var (
 	nnmBase   = env("NNM_BASE", "https://nnmclub.to")
@@ -215,10 +215,11 @@ func dedupeFilms(items []Item) []Item {
 	return out
 }
 
-// hasRuVoice — русский звук: дубляж, многоголоска, студия или RU-дорожка
-// в тех-скобках («[EN / RU, EN Sub]» у NNM)
+// hasRuVoice — русский звук: только явные маркеры — дубляж, многоголоска
+// или известная студия. «RU» в тех-скобках NNM («[EN / RU, EN Sub]») —
+// это субтитры, не дорожка
 func hasRuVoice(it Item) bool {
-	return it.Dub || it.Mvo || it.Voice != "" || ruTrackRe.MatchString(it.Title)
+	return it.Dub || it.Mvo || it.Voice != ""
 }
 
 // betterRelease: раздача с русским звуком лучше беззвучной, не-камрип лучше
@@ -258,6 +259,18 @@ func filterJunk(items []Item) []Item {
 			continue
 		}
 		out = append(out, it)
+	}
+	return out
+}
+
+// filterDead — раздачи без сидов: качать нельзя (фейковые BDRemux
+// невышедших фильмов живут именно так — 0 сидов)
+func filterDead(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if it.Seeders > 0 {
+			out = append(out, it)
+		}
 	}
 	return out
 }
@@ -364,6 +377,7 @@ func buildTopItems(src, cat string, pages int, junk bool, voices, ru, sort strin
 		items = filterJunk(items)
 	}
 	items = filterBlocked(items)
+	items = filterDead(items)
 	items = filterVoice(items, voices)
 	items = filterRussian(items, ru)
 

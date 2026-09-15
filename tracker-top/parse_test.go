@@ -394,13 +394,26 @@ func TestFindCandidatesVideoOnly(t *testing.T) {
 	check(t, "игра не видео", !videoReleaseRe.MatchString("Marvel Человек-Паук 2 [v 2.810] (2025) PC | Portable"))
 	check(t, "софт не видео", !videoReleaseRe.MatchString("Photoshop 2026 [Ru] (2025) PC | RePack"))
 
-	// RU-дорожка NNM считается русским звуком, rutor Sub — нет
-	check(t, "EN/RU дорожка", ruTrackRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]"))
-	check(t, "чистый Sub без RU", !ruTrackRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub"))
+	// NNM «[… Sub]» = раздача с субтитрами, русского звука нет
+	check(t, "NNM Sub-скобки", nnmSubRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]"))
+	check(t, "без Sub не матчится", !nnmSubRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub"))
 
-	nnm := Item{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 200, Title: "Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]"}
+	nnm := Item{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 200, Title: "Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]", SubOnly: true}
 	rut := Item{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 300, Title: "Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub", SubOnly: true}
-	check(t, "hasRuVoice NNM EN/RU", hasRuVoice(nnm))
-	check(t, "hasRuVoice rutor Sub = false", !hasRuVoice(rut))
-	check(t, "NNM с RU-дорожкой лучше Sub", betterRelease(nnm, rut))
+	check(t, "NNM EN/RU+Sub без звука", !hasRuVoice(nnm))
+	check(t, "rutor Sub без звука", !hasRuVoice(rut))
+	// обе субтитровые — ru-фильтр вырезает обе
+	out := filterRussian([]Item{nnm, rut}, "1")
+	check(t, "обе субтитровые вырезаны", len(out) == 0, len(out))
+}
+
+func TestDeadAndFakeBDRemux(t *testing.T) {
+	// живой кейс юзера: «Мстители: Доктор Дум (2026) BDRemux 2160p» — фильм
+	// не вышел, раздача фейк с нулём сидов
+	items := []Item{
+		{Ru: "Мстители: Доктор Дум", Year: 2026, Quality: "2160", Seeders: 0},
+		{Ru: "Холоп 3", Year: 2026, Quality: "1080", Seeders: 5},
+	}
+	out := filterDead(items)
+	check(t, "мёртвая вырезана", len(out) == 1 && out[0].Ru == "Холоп 3", len(out))
 }
