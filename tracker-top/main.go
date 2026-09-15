@@ -22,6 +22,8 @@ import (
 	"time"
 )
 
+const cacheVer = "v2" // версия логики фильтров: смена инвалидирует кэш на томе
+
 var (
 	nnmBase   = env("NNM_BASE", "https://nnmclub.to")
 	rutorBase = env("RUTOR_BASE", "https://rutor.info")
@@ -271,7 +273,7 @@ func sortItems(items []Item, sortBy string) {
 }
 
 func getTop(src, cat string, pages int, junk bool, voices, ru, sort string) (Payload, bool, error) {
-	key := src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
+	key := cacheVer + "|" + src + "|" + cat + "|" + strconv.Itoa(pages) + "|junk:" + strconv.FormatBool(junk) +
 		"|voice:" + voices + "|ru:" + ru + "|" + sort
 
 	cacheMu.Lock()
