@@ -384,7 +384,7 @@ func findItems(query string) []Item {
 	return items
 }
 
-// кэш /find: найденное живёт 6 часов, ненайденное — 45 минут (новое появление
+// кэш /find: найденное живёт 12 часов, ненайденное — 45 минут (новое появление
 // заметим быстро, а трекеры не дёргаем поиском на каждый пролистанный топ)
 var (
 	findCacheMu sync.Mutex
@@ -405,7 +405,7 @@ func findWithCache(query string, year int, typ, minq, voices string, junk, ru bo
 	if e, ok := findCache[key]; ok {
 		live := 45 * time.Minute
 		if e.found {
-			live = 6 * time.Hour
+			live = 12 * time.Hour
 		}
 		if time.Since(e.ts) < live {
 			findCacheMu.Unlock()

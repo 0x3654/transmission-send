@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -364,6 +365,46 @@ func main() {
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "rev": rev, "nnm": nnmBase, "rutor": rutorBase})
+	})
+
+	// батч-проверка наличия раздач: один запрос на страницу «Топ · TMDB»
+	mux.HandleFunc("POST /findbatch", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		var req []struct {
+			Query string `json:"query"`
+			Year  int    `json:"year"`
+			Type  string `json:"type"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "bad json: " + err.Error()})
+			return
+		}
+
+		q := r.URL.Query()
+		minq := param(q, "minq", "")
+		voices := param(q, "voice", "")
+		junk := param(q, "junk", "1") != "0"
+		ru := param(q, "ru", "1") != "0"
+
+		found := make([]bool, len(req))
+		sem := make(chan struct{}, 6)
+		var wg sync.WaitGroup
+		for i := range req {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				_, found[i] = findWithCache(req[i].Query, req[i].Year, req[i].Type, minq, voices, junk, ru)
+			}(i)
+		}
+		wg.Wait()
+
+		writeJSON(w, 200, map[string]any{"found": found})
 	})
 
 	// есть ли у фильма раздача под наши фильтры — для «Топ · TMDB»

@@ -304,8 +304,10 @@
         function serverUrl(){
             var url = (Lampa.Storage.field('top_server_url') || '').trim()
 
-            // без схемы считаем https: PWA (https) молча блокирует http-запросы
+            // сервер только https (http-порт закрыт, http-запрос умирает мгновенно):
+            // без схемы — достраиваем, чужую http- схему — принудительно чиним
             if(url && !/^https?:\/\//i.test(url)) url = 'https://' + url
+            url = url.replace(/^http:\/\//i, 'https://')
 
             return url.replace(/\/+$/, '')
         }
@@ -563,8 +565,12 @@
                             Lampa.Noty.show(T('trackers_matched') + ' ' + results.length + '/' + items.length)
                         }
                     })
-                }, function(){
-                    Lampa.Noty.show(T('server_fail'), { style: 'error' })
+                }, function(a, b){
+                    var why = ''
+                    if(typeof a === 'object' && a) why = JSON.stringify(a).slice(0, 100)
+                    else if(a) why = String(a).slice(0, 100)
+
+                    Lampa.Noty.show(T('server_fail') + (why ? ': ' + why : ''), { style: 'error', time: 8000 })
 
                     comp.empty()
                 })
