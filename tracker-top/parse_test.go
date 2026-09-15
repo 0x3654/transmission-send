@@ -385,3 +385,22 @@ func TestSubOnlyAndRuVoice(t *testing.T) {
 func subOnlyOf(title string) bool {
 	return rutorSubRe.MatchString(title) && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title)
 }
+
+func TestFindCandidatesVideoOnly(t *testing.T) {
+	// живой кейс: игра «Marvel's Spider-Man 2 (2025) PC | Portable»
+	// проходила год-фильтр (±1) и находилась как «фильм 2026»
+	check(t, "видео WEB-DL", videoReleaseRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub"))
+	check(t, "видео TS", videoReleaseRe.MatchString("Человек-паук: Новый день (2026) TS [H.264/1080p] [MVO]"))
+	check(t, "игра не видео", !videoReleaseRe.MatchString("Marvel Человек-Паук 2 [v 2.810] (2025) PC | Portable"))
+	check(t, "софт не видео", !videoReleaseRe.MatchString("Photoshop 2026 [Ru] (2025) PC | RePack"))
+
+	// RU-дорожка NNM считается русским звуком, rutor Sub — нет
+	check(t, "EN/RU дорожка", ruTrackRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]"))
+	check(t, "чистый Sub без RU", !ruTrackRe.MatchString("Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub"))
+
+	nnm := Item{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 200, Title: "Одиссея / The Odyssey (2026) WEB-DL [H.264/1080p] [EN / RU, EN Sub]"}
+	rut := Item{Ru: "Одиссея", Year: 2026, Quality: "1080", Seeders: 300, Title: "Одиссея / The Odyssey (2026) WEB-DL 1080p | Sub", SubOnly: true}
+	check(t, "hasRuVoice NNM EN/RU", hasRuVoice(nnm))
+	check(t, "hasRuVoice rutor Sub = false", !hasRuVoice(rut))
+	check(t, "NNM с RU-дорожкой лучше Sub", betterRelease(nnm, rut))
+}

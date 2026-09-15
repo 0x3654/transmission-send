@@ -129,6 +129,11 @@ var (
 	rutorMvoRe = regexp.MustCompile(`\|\s*P\b`)
 	rutorDubRe = regexp.MustCompile(`\|\s*D\b`)
 	rutorSubRe = regexp.MustCompile(`\|\s*Sub\b`)
+	// признак видеорелиза: игры/софт («PC | Portable», «Repack») его не имеют
+	// и в find-кандидаты попадать не должны
+	videoReleaseRe = regexp.MustCompile(`(?i)\b(1080|720|2160|4k|uhd|dvdrip|webrip|web-?dl|bdrip|hdrip|bdremux|telesync|camrip|tsrip|ts)\b`)
+	// русская дорожка в тех-скобках NNM: «[EN / RU, EN Sub]» — русский звук есть
+	ruTrackRe = regexp.MustCompile(`(?i)\[[^\]]*\bRU\b[^\]]*\]`)
 	// плохой звук: «звук с TS» — дорожка записана с экрана камрип-сеанса
 	tsRe = regexp.MustCompile(`(?i)звук с\s?ts`)
 	// камрип: плохая картинка — CAMRip, TS/TeleSync, TC, SCR, «зрительный зал»
@@ -391,7 +396,11 @@ func findItems(query string) []Item {
 	}
 
 	if body, err := fetch(rutorBase + "/search/0/0/000/0/" + url.PathEscape(query) + "/"); err == nil {
-		items = append(items, parseRutor(body)...)
+		for _, it := range parseRutor(body) {
+			if videoReleaseRe.MatchString(it.Title) {
+				items = append(items, it)
+			}
+		}
 	} else {
 		log.Printf("find rutor: %v", err)
 	}

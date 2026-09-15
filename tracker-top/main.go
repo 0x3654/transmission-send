@@ -215,9 +215,10 @@ func dedupeFilms(items []Item) []Item {
 	return out
 }
 
-// hasRuVoice — русский звук: дубляж, многоголоска или известная студия
+// hasRuVoice — русский звук: дубляж, многоголоска, студия или RU-дорожка
+// в тех-скобках («[EN / RU, EN Sub]» у NNM)
 func hasRuVoice(it Item) bool {
-	return it.Dub || it.Mvo || it.Voice != ""
+	return it.Dub || it.Mvo || it.Voice != "" || ruTrackRe.MatchString(it.Title)
 }
 
 // betterRelease: раздача с русским звуком лучше беззвучной, не-камрип лучше
