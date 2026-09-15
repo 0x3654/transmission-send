@@ -14,16 +14,25 @@ const state = { storage: {}, fields: {}, tmdbResponse: null, serverJson: null, f
 function InteractionCategory(object){
     this.object = object
     this.activity = { loader(){}, toggle(){} }
-    // фейковый DOM: дети добавляются по одному на карточку, как в реальном классе
+    // фейковый DOM: карточка с .card__view (appendChild/querySelector) —
+    // trackCards вешает туда плашки качества и «просмотрено»
     const body = { children: [], removeChild(c){ this.children = this.children.filter(x => x !== c) } }
     this.append = (data) => {
-        (data && data.results || []).forEach((r) => body.children.push({ id: r.id }))
+        (data && data.results || []).forEach((r) => {
+            const view = {
+                children: [],
+                appendChild(c){ this.children.push(c) },
+                querySelector(sel){ return this.children.find(c => (' ' + (c.className || '') + ' ').includes(sel)) || null }
+            }
+            body.children.push({ id: r.id, querySelector: (sel) => sel === '.card__view' ? view : null })
+        })
         this.built = (this.built || []).concat((data && data.results) || [])
     }
     this.topDomIds = () => body.children.map(c => c.id)
     this.build = (data) => { this.append(data) } // как в реальном классе: build зовёт append
     this.empty = () => { this.emptied = true }
     this.render = () => ({ querySelector: (sel) => (sel === '.category-full' ? body : null) })
+    this.topDomCards = () => body.children
 }
 
 function Reguest(){
@@ -34,6 +43,16 @@ function Reguest(){
             calls.findBatches = calls.findBatches || []
             calls.findBatches.push(url)
             if(state.findBatchJson) ok(state.findBatchJson)
+            else fail({})
+        }
+        else if(url.includes('/top')) {
+            const m = url.match(/[&?]page=(\d+)/)
+            const pg = m ? +m[1] : 0
+            if(pg > 0 && state.serverJson && state.serverJson.items){
+                const slice = 2
+                const all = state.serverJson.items
+                ok({ page: pg, total_pages: Math.ceil(all.length / slice), items: all.slice((pg - 1) * slice, pg * slice) })
+            } else if(state.serverJson) ok(state.serverJson)
             else fail({})
         }
         else if(url.includes('/find')) {
@@ -56,7 +75,11 @@ function Reguest(){
 const sandbox = {
     console, setTimeout,
     navigator: {},
-    document: { createElement: () => ({}) },
+    document: {
+        createElement: () => ({ style: {}, textContent: '', className: '', children: [], appendChild(c){ this.children.push(c) }, setAttribute(){}, remove(){}, click(){} }),
+        head: { appendChild(){} },
+        body: { appendChild(){} }
+    },
     window: null
 }
 sandbox.window = sandbox
@@ -190,7 +213,7 @@ const driftResults = () => ({ results: [
     { id: 5, title: 'Свежий дрейф без раздачи', release_date: '2026-01-01', media_type: 'movie' }
 ], total_pages: 1 })
 state.tmdbResponse = driftResults()
-state.findBatchJson = { found: [false] } // батч спросит только неизвестный id 5
+state.findBatchJson = { found: [false], quality: [''] } // батч спросит только неизвестный id 5
 {
     const c3 = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
     c3.create()
@@ -259,7 +282,14 @@ comp.create()
     assert.strictEqual(voice, 'Дубляж,LostFilm', 'две озвучки одной строкой')
 }
 assert.strictEqual(comp.built.length, 1, 'софт отсеян матчингом')
-assert.strictEqual(comp.built[0].quality, '4K', 'бейдж качества на карточке')
+// плашка качества: DOM-стаб карточки получил .card__quality (класс нативный)
+{
+    const card = comp.topDomCards()[0]
+    const view = card.querySelector('.card__view')
+    const q = view.children.find(c => (c.className || '').includes('card__quality'))
+    assert.ok(q, 'плашка качества на карточке')
+    assert.strictEqual(q.children[0].textContent, '4K', 'текст плашки 4K (2160 → 4K)')
+}
 console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
 
 // --- 4b2. постраничность: nextPageReuest тянет следующую страницу базы

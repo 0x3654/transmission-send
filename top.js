@@ -112,9 +112,11 @@
 
         // найденные раздачи по id из последнего батча: живёт в Storage,
         // переживает перезапуск PWA — первый показ «Топа · TMDB» уже чистый.
-        // Ключ — текущие фильтры: сменили качество/озвучку/CAM — память сброшена
+        // Ключ — текущие фильтры: сменили качество/озвучку/CAM — память сброшена.
+        // batchQuality — качество лучшей раздачи (плашка на карточке)
         var batchKey = ''
         var batchFound = {}
+        var batchQuality = {}
 
         function resetBatchIfFiltersChanged(){
             var key = filtersParams()
@@ -123,11 +125,15 @@
 
             batchKey = key
             batchFound = {}
+            batchQuality = {}
 
             try{
                 var saved = Lampa.Storage.get('top_batch_found', '{}')
 
-                if(saved && typeof saved === 'object' && saved.key === key) batchFound = saved.map
+                if(saved && typeof saved === 'object' && saved.key === key){
+                    batchFound = saved.map || {}
+                    batchQuality = saved.quality || {}
+                }
             }
             catch(e){}
         }
@@ -143,7 +149,7 @@
                     for(var i = 0; i < keys.length - 3000; i++) delete batchFound[keys[i]]
                 }
 
-                Lampa.Storage.set('top_batch_found', { key: batchKey, map: batchFound })
+                Lampa.Storage.set('top_batch_found', { key: batchKey, map: batchFound, quality: batchQuality })
             }
             catch(e){}
         }
@@ -272,8 +278,16 @@
             var net  = new Lampa.Reguest()
 
             // trackCards — самой глубокой: видит финальный набор карточек
-            // (после фильтров просмотренных и дедупа) и даёт topRemoveIds
-            trackCards(comp)
+            // (после фильтров просмотренных и дедупа), даёт topRemoveIds
+            // и вешает плашки качества (batchQuality) и «просмотрено»
+            trackCards(comp, {
+                qualityOf: function(el){ return batchQuality[el.id] || '' },
+                watchedOf: function(el){
+                    var w = watchedSet()
+                    return w[(el.name ? 'tv' : 'movie') + ':' + el.id] === true ||
+                        w[normTitle(el.title || el.name || '') + '|' + ((el.release_date || el.first_air_date || '') + '').slice(0, 4)] === true
+                }
+            })
             hideWatched(comp)
             dedupeCards(comp)
 
@@ -334,10 +348,20 @@
 
                     var toHide = {}
 
+                    var rq = r.quality || []
+
                     unknown.forEach(function(el, i){
                         batchFound[el.id] = r.found[i]
 
                         if(r.found[i] === false) toHide[el.id] = true
+
+                        // плашка качества: число сервера → человеческий вид
+                        var q = rq[i] && { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[rq[i]]
+
+                        if(q){
+                            batchQuality[el.id] = q
+                            if(comp.topQuality) comp.topQuality(el.id, q)
+                        }
                     })
 
                     saveBatch()
@@ -503,15 +527,52 @@
             return set
         }
 
-        // связь «показанные карточки ↔ DOM»: позволяет точечно удалять
-        // карточки (например, когда фоновый батч выяснил, что раздачи нет)
-        // без пересборки экрана — экран не моргает
-        function trackCards(comp){
+        // связь «показанные карточки ↔ DOM»: точечное удаление (когда фоновый
+        // батч выяснил, что раздачи нет) + плашки качества и «просмотрено» —
+        // без пересборки экрана, экран не моргает
+        function watchedBadge(){
+            var el = document.createElement('div')
+            el.className = 'top-badge top-badge--watched'
+            el.textContent = '✓'
+            return el
+        }
+
+        function qualityBadge(text){
+            var wrap = document.createElement('div')
+            wrap.className = 'card__quality' // нативный стиль Lampa
+            var inner = document.createElement('div')
+            inner.textContent = text
+            wrap.appendChild(inner)
+            return wrap
+        }
+
+        function trackCards(comp, opts){
             var origAppend = comp.append.bind(comp)
             var shown = []
             var bodyEl = null
+            var opts = opts || {}
+            var qualityOf = opts.qualityOf || function(){ return '' }
+            var watchedOf = opts.watchedOf || null
+
+            var style = document.createElement('style')
+            style.textContent = '.top-badge{position:absolute;top:8px;left:8px;z-index:3;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(22,140,70,.92);color:#fff;font-size:13px;font-weight:700}'
+            document.head.appendChild(style)
+
+            function decorate(cardEl, el){
+                var view = cardEl.querySelector ? cardEl.querySelector('.card__view') : null
+                if(!view) return
+
+                var q = qualityOf(el)
+                if(q && !view.querySelector('.card__quality')) view.appendChild(qualityBadge(q))
+
+                if(watchedOf && watchedOf(el) && !view.querySelector('.top-badge--watched')){
+                    view.appendChild(watchedBadge())
+                }
+            }
 
             comp.append = function(data, append){
+                var before = bodyEl && bodyEl.children ? bodyEl.children.length : 0
+
                 origAppend(data, append)
 
                 if(data && data.results) shown = shown.concat(data.results)
@@ -519,6 +580,26 @@
                 if(!bodyEl && comp.render && comp.render(true)){
                     var html = comp.render(true)
                     bodyEl = html.querySelector ? html.querySelector('.category-full') : null
+                }
+
+                if(bodyEl && bodyEl.children && data && data.results){
+                    for(var i = before; i < bodyEl.children.length; i++){
+                        var el = data.results[i - before]
+                        if(el) decorate(bodyEl.children[i], el)
+                    }
+                }
+            }
+
+            // отложенная плачка качества (пришла фоном из find-ответа)
+            comp.topQuality = function(id, text){
+                if(!bodyEl || !bodyEl.children || bodyEl.children.length !== shown.length) return
+
+                for(var i = 0; i < shown.length; i++){
+                    if(shown[i].id === id){
+                        var view = bodyEl.children[i].querySelector ? bodyEl.children[i].querySelector('.card__view') : null
+                        if(view && !view.querySelector('.card__quality')) view.appendChild(qualityBadge(text))
+                        return
+                    }
                 }
             }
 
@@ -688,6 +769,18 @@
             }
             if(!sort) sort = 'seeds'
 
+            // плашки: качество лучшей раздачи (серверное item.quality — для всех
+            // типов карточек, включая сериалы) и «просмотрено» по истории Lampa
+            trackCards(comp, {
+                qualityOf: function(el){
+                    var q = el.top && el.top.quality
+                    return { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[q] || ''
+                },
+                watchedOf: function(el){
+                    var w = watchedSet()
+                    return w[(el.name ? 'tv' : 'movie') + ':' + el.id] === true
+                }
+            })
             hideWatched(comp)
             dedupeCards(comp)
 
@@ -723,10 +816,6 @@
 
                             el.source = 'tmdb'
                             el.top = items[i]
-
-                            // нативный бейдж качества на карточке (card__quality,
-                            // настройка Lampa «Отметки качества»)
-                            el.quality = { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[items[i].quality] || ''
 
                             results.push(el)
                         }

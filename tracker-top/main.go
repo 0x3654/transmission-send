@@ -582,6 +582,7 @@ func main() {
 		ru := param(q, "ru", "1") != "0"
 
 		found := make([]bool, len(req))
+		quality := make([]string, len(req))
 		sem := make(chan struct{}, 2) // бережём NNM: 503 при лавине
 		var wg sync.WaitGroup
 		for i := range req {
@@ -590,12 +591,16 @@ func main() {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				_, found[i] = findWithCache2(req[i].Query, req[i].Orig, req[i].Year, req[i].Type, minq, voices, junk, ru)
+				it, ok := findWithCache2(req[i].Query, req[i].Orig, req[i].Year, req[i].Type, minq, voices, junk, ru)
+				found[i] = ok
+				if ok {
+					quality[i] = it.Quality
+				}
 			}(i)
 		}
 		wg.Wait()
 
-		writeJSON(w, 200, map[string]any{"found": found})
+		writeJSON(w, 200, map[string]any{"found": found, "quality": quality})
 	}
 
 	mux.HandleFunc("GET /findbatch", findbatch)
