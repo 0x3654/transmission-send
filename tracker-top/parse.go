@@ -261,6 +261,10 @@ func parseNNM(body string) []Item {
 		}
 		it.Voice = voiceOf(title)
 
+		// SubOnly: rutor «| Sub» или NNM «[… Sub]» — без явной озвучки
+		it.SubOnly = (rutorSubRe.MatchString(title) || nnmSubRe.MatchString(title)) &&
+			!it.Dub && !it.Mvo && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title)
+
 		if fm := forumRe.FindStringSubmatch(c(1)); fm != nil {
 			it.ForumID = atoiDefault(fm[1])
 			it.Category = strings.TrimSpace(html.UnescapeString(stripTags(fm[2])))
@@ -511,7 +515,12 @@ func findRelease2(query, orig string, year int, typ string, minq, voices string,
 		if it.Year == 0 || year == 0 || abs(it.Year-year) > tol {
 			continue
 		}
-		if normName(it.Ru) != nq && !(no != "" && normName(it.Orig) == no) {
+		// имя: ru-совпадение достаточно, только если orig не расходится
+		// (другой фильм «Одиссея / Odyssey (2025)» не должен матчить
+		// «Одиссея / The Odyssey (2026)» годом ±1)
+		ruMatch := normName(it.Ru) == nq && (no == "" || it.Orig == "" || normName(it.Orig) == no)
+		origMatch := no != "" && normName(it.Orig) == no
+		if !ruMatch && !origMatch {
 			continue
 		}
 		if it.Seeders <= 0 {
@@ -616,6 +625,8 @@ func parseRutor(body string) []Item {
 			Mvo:     mvoRe.MatchString(title) || rutorMvoRe.MatchString(title),
 			Voice:   voiceOf(title),
 		}
+		it.SubOnly = (rutorSubRe.MatchString(title) || nnmSubRe.MatchString(title)) &&
+			!it.Dub && !it.Mvo && !rutorDubRe.MatchString(title) && !rutorMvoRe.MatchString(title)
 
 		if mm := rutMagnet.FindStringSubmatch(c(1)); mm != nil {
 			it.Magnet = mm[1]
