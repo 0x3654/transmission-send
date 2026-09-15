@@ -422,7 +422,7 @@ type findCacheEntry struct {
 }
 
 func findWithCache(query string, year int, typ, minq, voices string, junk, ru bool) (Item, bool) {
-	key := query + "|" + strconv.Itoa(year) + "|" + typ + "|" + minq + "|" + voices + "|" +
+	key := cacheVer + "|" + query + "|" + strconv.Itoa(year) + "|" + typ + "|" + minq + "|" + voices + "|" +
 		strconv.FormatBool(junk) + strconv.FormatBool(ru)
 
 	findCacheMu.Lock()
