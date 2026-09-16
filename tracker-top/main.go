@@ -509,16 +509,16 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // warmCache — фоновый прогрев ходовых ключей: первый запрос пользователя
 // не должен ждать холодную сборку (она занимает десятки секунд)
 func warmCache() {
-	keys := [][2]string{
-		{"both", "seeds"},
-		{"nnm", "seeds"},
-		{"nnm", "top"},
-	}
 	for {
-		for _, k := range keys {
+		// топы
+		for _, k := range [][2]string{{"both", "seeds"}, {"nnm", "seeds"}, {"nnm", "top"}} {
 			if _, _, err := getTop(k[0], "video", 2, true, "", "1", k[1]); err != nil {
-				log.Printf("warm %s/%s: %v", k[0], k[1], err)
+				log.Printf("warm top %s/%s: %v", k[0], k[1], err)
 			}
+		}
+		// «Топ · TMDB»: ходовой вариант — find-кэш греется вместе с ним
+		if _, _, err := buildFeed("movie_week", 1, 20, "", "", true, true); err != nil {
+			log.Printf("warm feed movie_week: %v", err)
 		}
 		time.Sleep(time.Duration(ttl) * time.Second / 2)
 	}
