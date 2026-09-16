@@ -216,6 +216,49 @@ state.feedJson = null
 state.feedJson = { page: 1, total_pages: 1, results: [] }
 console.log('✓ «Топ · TMDB» через сервер /feed: качество сразу, прямой TMDB не тратится, фолбэк работает')
 
+// --- 3a2. авто-добор: просмотренные вырезали страницу — клиент тянет следующую
+state.feedJson = null
+state.storage.top_batch_found = undefined
+state.tmdbResponse = { results: [
+    { id: 10, title: 'Просмотренный А', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 11, title: 'Просмотренный Б', release_date: '2026-01-01', media_type: 'movie' },
+    { id: 12, title: 'Свежий', release_date: '2026-01-01', media_type: 'movie' }
+], total_pages: 2 }
+state.favorite = { history: [
+    { id: 10, title: 'Просмотренный А', release_date: '2026-01-01' },
+    { id: 11, title: 'Просмотренный Б', release_date: '2026-01-01' }
+] }
+state.fields.top_hide_watched = 'true'
+{
+    let page2done = false
+    const origTmdb = state.tmdbResponse
+    // страница 2 придёт по второму tmdb-запросу
+    const c = new calls.components['top_screen']({ page: 1, top_method: 'trending/movie/week', top_params: null })
+    let calls2 = 0
+    const realGet = sandbox.Lampa.Api.sources.tmdb.get
+    sandbox.Lampa.Api.sources.tmdb.get = (m, p, ok, f) => {
+        calls2++
+        if(p.page >= 2) ok({ results: [
+            { id: 20, title: 'Добор один', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 21, title: 'Добор два', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 22, title: 'Добор три', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 23, title: 'Добор четыре', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 24, title: 'Добор пять', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 25, title: 'Добор шесть', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 26, title: 'Добор семь', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 27, title: 'Добор восемь', release_date: '2026-01-01', media_type: 'movie' },
+            { id: 28, title: 'Добор девять', release_date: '2026-01-01', media_type: 'movie' }
+        ], total_pages: 2 })
+        else realGet(m, p, ok, f)
+    }
+    c.create()
+    sandbox.Lampa.Api.sources.tmdb.get = realGet
+    assert.ok(calls2 >= 2, 'авто-добор страницы 2 (' + calls2 + ')')
+    assert.deepStrictEqual(c.built.map(r => r.id), [12, 20, 21, 22, 23, 24, 25, 26, 27, 28], 'экран заполнен: свежие + добор')
+}
+state.favorite = {}
+console.log('✓ авто-добор: просмотренные вырезали — клиент докачал страницу 2 до заполнения')
+
 // --- 3b. (прямой TMDB-путь: фолбэк — /feed недоступен)
 state.feedJson = null
 

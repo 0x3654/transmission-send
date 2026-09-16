@@ -451,8 +451,27 @@
                 })
             }
 
+            // фильтр просмотренных режет страницу сервера — если на экране
+            // осталось мало, сами докачиваем следующую, пока экран не
+            // заполнится (до 3 доборов или конца страниц)
             comp.create = function(){
-                load(object.page || 1, this.build.bind(this), this.empty.bind(this))
+                var self = this
+
+                function buildAndMaybeMore(json, page){
+                    comp.build(json)
+
+                    var left = (json && json.results) ? json.results.length : 0
+
+                    if(left >= 10 || page >= (json && json.total_pages ? json.total_pages : 1) || page - (object.page || 1) >= 3) return
+
+                    load(page + 1, function(next){
+                        buildAndMaybeMore({ results: (json.results || []).concat(next.results || []), total_pages: json.total_pages }, page + 1)
+                    }, function(){})
+                }
+
+                load(object.page || 1, function(json){
+                    buildAndMaybeMore(json, object.page || 1)
+                }, this.empty.bind(this))
             }
 
             comp.nextPageReuest = function(obj, resolve, reject){
