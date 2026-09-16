@@ -520,6 +520,7 @@ func warmCache() {
 			if _, _, err := getTop(k[0], "video", 2, true, "", "1", k[1]); err != nil {
 				log.Printf("warm top %s/%s: %v", k[0], k[1], err)
 			}
+			time.Sleep(10 * time.Second) // не занимаем NNM-семафор вечно
 		}
 		// «Топ · TMDB»: по одному варианту за цикл — все прогреются по кругу,
 		// find-кэш (12 ч) греется вместе с ними

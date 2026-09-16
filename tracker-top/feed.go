@@ -162,7 +162,7 @@ func buildFeed(variant string, page, feedSize int, minq, voices string, junk, ru
 				continue
 			}
 
-			el["quality"] = it.Quality
+			el["quality"] = humanQuality(it.Quality)
 			collected = append(collected, el)
 		}
 
@@ -190,6 +190,19 @@ func isAnimePerson(el map[string]any) bool {
 		return true
 	}
 	return false
+}
+
+// humanQuality — сырой ранг → вид для плашки
+func humanQuality(q string) string {
+	switch q {
+	case "2160":
+		return "4K"
+	case "1080":
+		return "1080p"
+	case "720":
+		return "720p"
+	}
+	return "SD"
 }
 
 func min(a, b int) int {
