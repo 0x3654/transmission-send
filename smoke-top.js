@@ -39,7 +39,11 @@ function Reguest(){
     this.timeout = () => {}
     this.silent = (url, ok, fail) => {
         calls.urls.push(url)
-        if(url.includes('/findbatch')) {
+        if(url.includes('/feed')) {
+            if(state.feedJson) ok(state.feedJson)
+            else fail({})
+        }
+        else if(url.includes('/findbatch')) {
             calls.findBatches = calls.findBatches || []
             calls.findBatches.push(url)
             if(state.findBatchJson) ok(state.findBatchJson)
@@ -184,6 +188,37 @@ console.log('✓ TopScreen: последний вариант из Storage + п�
 
 // память батча персистится в Storage
 assert.deepStrictEqual(state.storage.top_batch_found, undefined)
+// --- 3a. «Топ · TMDB» через сервер: /feed, качество сразу, фолбэк при отказе
+state.fields.top_server_url = 'http://10.1.1.1:8355'
+state.feedJson = { page: 1, total_pages: 3, results: [
+    { id: 900, title: 'Серверная карточка', release_date: '2026-01-01', media_type: 'movie', quality: '2160' },
+    { id: 901, title: 'Ещё серверная', release_date: '2026-01-01', media_type: 'movie', quality: 'sd' }
+] }
+{
+    const tmdbCalls0 = calls.tmdb.length
+    const c0 = new calls.components['top_screen']({ page: 1, top_variant: 'movie_week', top_method: 'trending/movie/week', top_params: null })
+    c0.create()
+    assert.deepStrictEqual(c0.built.map(r => r.id), [900, 901], 'страница из /feed')
+    assert.strictEqual(calls.tmdb.length, tmdbCalls0, 'прямой TMDB не зовётся')
+    const card = c0.topDomCards()[0]
+    const view = card.querySelector('.card__view')
+    const q = view.children.find(c => (c.className || '').includes('card__quality'))
+    assert.ok(q && q.children[0].textContent === '4K', 'плашка качества сразу (2160→4K)')
+    assert.ok(calls.urls.some(u => u.includes('/feed?variant=movie_week&page=1')), '/feed с ключом варианта')
+}
+// фолбэк: сервер упал — прямой TMDB
+state.feedJson = null
+{
+    const c0b = new calls.components['top_screen']({ page: 1, top_variant: 'movie_week', top_method: 'trending/movie/week', top_params: null })
+    c0b.create()
+    assert.ok(c0b.built.length >= 1, 'фолбэк на прямой TMDB отработал')
+}
+state.feedJson = { page: 1, total_pages: 1, results: [] }
+console.log('✓ «Топ · TMDB» через сервер /feed: качество сразу, прямой TMDB не тратится, фолбэк работает')
+
+// --- 3b. (прямой TMDB-путь: фолбэк — /feed недоступен)
+state.feedJson = null
+
 // --- 3b. «Топ · TMDB» неблокирующий фильтр раздач: экран строится сразу,
 // батч фоном; при found=false экран пересобирается по памяти плагина
 state.fields.top_server_url = 'http://10.1.1.1:8355'

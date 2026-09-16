@@ -97,17 +97,18 @@
         //---------- варианты «Топа» (TMDB)
 
         var VARIANTS = [
-            { title: 'Фильмы · за неделю',        method: 'trending/movie/week' },
-            { title: 'Фильмы · за день',          method: 'trending/movie/day' },
-            { title: 'Фильмы · топ 14 дней',      method: 'discover/movie', windowDays: 14, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
-            { title: 'Фильмы · топ 30 дней',      method: 'discover/movie', windowDays: 30, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
-            { title: 'Сериалы · за неделю',       method: 'trending/tv/week' },
-            { title: 'Сериалы · за день',         method: 'trending/tv/day' },
-            { title: 'Сериалы · топ 30 дней',     method: 'discover/tv',    windowDays: 30, dateKey: 'first_air_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 20 } },
-            { title: 'Фильмы · лучшее',           method: 'discover/movie', params: { sort_by: 'vote_average.desc', 'vote_count.gte': 2000 } },
-            { title: 'Сериалы · лучшее',          method: 'discover/tv',    params: { sort_by: 'vote_average.desc', 'vote_count.gte': 1500 } },
-            { title: 'Фильмы · новинки 2025+',    method: 'discover/movie', params: { sort_by: 'popularity.desc', 'primary_release_date.gte': '2025-01-01', 'vote_count.gte': 100 } },
-            { title: 'Сериалы · новинки 2025+',   method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
+            // key — идентификатор варианта на сервере (/feed?variant=)
+            { title: 'Фильмы · за неделю',        key: 'movie_week',  method: 'trending/movie/week' },
+            { title: 'Фильмы · за день',          key: 'movie_day',   method: 'trending/movie/day' },
+            { title: 'Фильмы · топ 14 дней',      key: 'movie_14',    method: 'discover/movie', windowDays: 14, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
+            { title: 'Фильмы · топ 30 дней',      key: 'movie_30',    method: 'discover/movie', windowDays: 30, dateKey: 'primary_release_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 50 } },
+            { title: 'Сериалы · за неделю',       key: 'tv_week',     method: 'trending/tv/week' },
+            { title: 'Сериалы · за день',         key: 'tv_day',      method: 'trending/tv/day' },
+            { title: 'Сериалы · топ 30 дней',     key: 'tv_30',       method: 'discover/tv',    windowDays: 30, dateKey: 'first_air_date', params: { sort_by: 'popularity.desc', 'vote_count.gte': 20 } },
+            { title: 'Фильмы · лучшее',           key: 'movie_best',  method: 'discover/movie', params: { sort_by: 'vote_average.desc', 'vote_count.gte': 2000 } },
+            { title: 'Сериалы · лучшее',          key: 'tv_best',     method: 'discover/tv',    params: { sort_by: 'vote_average.desc', 'vote_count.gte': 1500 } },
+            { title: 'Фильмы · новинки 2025+',    key: 'movie_2025',  method: 'discover/movie', params: { sort_by: 'popularity.desc', 'primary_release_date.gte': '2025-01-01', 'vote_count.gte': 100 } },
+            { title: 'Сериалы · новинки 2025+',   key: 'tv_2025',     method: 'discover/tv',    params: { sort_by: 'popularity.desc', 'first_air_date.gte': '2025-01-01', 'vote_count.gte': 30 } }
         ]
 
         // найденные раздачи по id из последнего батча: живёт в Storage,
@@ -266,6 +267,7 @@
                 title: 'Топ · TMDB',
                 component: 'top_screen',
                 page: 1,
+                top_variant: v.key || 'movie_week',
                 top_method: v.method,
                 top_params: variantParams(v)
             })
@@ -281,7 +283,12 @@
             // (после фильтров просмотренных и дедупа), даёт topRemoveIds
             // и вешает плашки качества (batchQuality) и «просмотрено»
             trackCards(comp, {
-                qualityOf: function(el){ return batchQuality[el.id] || '' },
+                qualityOf: function(el){
+                    // серверный /feed кладёт качество прямо в карточку;
+                    // прямой путь — из памяти батча
+                    if(el.quality) return { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[el.quality] || ''
+                    return batchQuality[el.id] || ''
+                },
                 watchedOf: function(el){
                     var w = watchedSet()
                     return w[(el.name ? 'tv' : 'movie') + ':' + el.id] === true ||
@@ -381,7 +388,32 @@
                 }, function(){})
             }
 
-            function load(page, ok, fail){
+            // серверный путь: /feed отдаёт страницу уже отфильтрованной по
+            // раздачам и с качеством (добирает TMDB-страници до полной);
+            // фильтр по просмотрам остаётся на клиенте (история в Lampa)
+            function loadViaServer(page, ok, fail){
+                var base = serverUrl()
+
+                if(!base) return fail()
+
+                net.timeout(60000)
+
+                net.silent(base + '/feed?variant=' + (object.top_variant || 'movie_week') +
+                    '&page=' + page + filtersParams(), function(json){
+                    if(!json || !json.results){
+                        fail()
+                        return
+                    }
+
+                    // качество уже в данных — плашки рисуются сразу;
+                    // дедуп/просмотренные — обёртками append
+                    ok({ results: json.results, total_pages: json.total_pages || 1 })
+                }, fail)
+            }
+
+            // фолбэк: прямой TMDB-путь (сервер недоступен) — старая схема
+            // с фоновым батчем
+            function loadDirect(page, ok, fail){
                 var params = { page: page }
 
                 if(object.top_params){
@@ -395,6 +427,21 @@
                     ok(json)
                     warmTrackers(json) // фоном, без ожидания
                 }, fail)
+            }
+
+            function load(page, ok, fail){
+                var failed = false
+
+                loadViaServer(page, function(json){
+                    if(!failed) ok(json)
+                }, function(){
+                    if(failed){
+                        fail()
+                        return
+                    }
+                    failed = true
+                    loadDirect(page, ok, fail)
+                })
             }
 
             comp.create = function(){
@@ -957,6 +1004,7 @@
                     title: 'Топ · TMDB',
                     component: 'top_screen',
                     page: 1,
+                    top_variant: homeVariant.key || 'movie_week',
                     top_method: homeVariant.method,
                     top_params: variantParams(homeVariant)
                 })

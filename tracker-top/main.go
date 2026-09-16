@@ -606,6 +606,34 @@ func main() {
 	mux.HandleFunc("GET /findbatch", findbatch)
 	mux.HandleFunc("POST /findbatch", findbatch)
 
+	// страница «Топ · TMDB» целиком: список + фильтры раздач + качество
+	mux.HandleFunc("GET /feed", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		variant := param(q, "variant", "movie_week")
+		page := 1
+		if n, e := strconv.Atoi(param(q, "page", "1")); e == nil && n > 0 && n <= 100 {
+			page = n
+		}
+		feedSize := 20
+		if n, e := strconv.Atoi(param(q, "slice", "20")); e == nil && n > 0 && n <= 50 {
+			feedSize = n
+		}
+
+		results, total, err := buildFeed(variant, page, feedSize,
+			param(q, "minq", ""), param(q, "voice", ""),
+			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0")
+		if err != nil {
+			writeJSON(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, 200, map[string]any{
+			"page":        page,
+			"total_pages": total,
+			"results":     results,
+		})
+	})
+
 	// есть ли у фильма раздача под наши фильтры — для «Топ · TMDB»
 	mux.HandleFunc("GET /find", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
