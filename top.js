@@ -401,14 +401,21 @@
                 net.silent(base + '/feed?variant=' + (object.top_variant || 'movie_week') +
                     '&page=' + page + filtersParams(), function(json){
                     if(!json || !json.results){
-                        fail()
+                        fail(json)
                         return
                     }
 
                     // качество уже в данных — плашки рисуются сразу;
                     // дедуп/просмотренные — обёртками append
                     ok({ results: json.results, total_pages: json.total_pages || 1 })
-                }, fail)
+                }, function(a, b){
+                    var why = ''
+                    if(typeof a === 'object' && a) why = JSON.stringify(a).slice(0, 100)
+                    else if(a) why = String(a).slice(0, 100)
+
+                    Lampa.Noty.show('/feed: ' + (why || 'недоступен'), { style: 'error', time: 8000 })
+                    fail(a, b)
+                })
             }
 
             // фолбэк: прямой TMDB-путь (сервер недоступен) — старая схема
@@ -601,9 +608,12 @@
             var qualityOf = opts.qualityOf || function(){ return '' }
             var watchedOf = opts.watchedOf || null
 
-            var style = document.createElement('style')
-            style.textContent = '.top-badge{position:absolute;top:8px;left:8px;z-index:3;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(22,140,70,.92);color:#fff;font-size:13px;font-weight:700}'
-            document.head.appendChild(style)
+            try{
+                var style = document.createElement('style')
+                style.textContent = '.top-badge{position:absolute;top:8px;left:8px;z-index:3;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(22,140,70,.92);color:#fff;font-size:13px;font-weight:700}'
+                document.head.appendChild(style)
+            }
+            catch(e){}
 
             function decorate(cardEl, el){
                 var view = cardEl.querySelector ? cardEl.querySelector('.card__view') : null
@@ -624,17 +634,25 @@
 
                 if(data && data.results) shown = shown.concat(data.results)
 
-                if(!bodyEl && comp.render && comp.render(true)){
-                    var html = comp.render(true)
-                    bodyEl = html.querySelector ? html.querySelector('.category-full') : null
+                if(!bodyEl){
+                    try{
+                        if(comp.render && comp.render(true)){
+                            var html = comp.render(true)
+                            bodyEl = html.querySelector ? html.querySelector('.category-full') : null
+                        }
+                    }
+                    catch(e){}
                 }
 
-                if(bodyEl && bodyEl.children && data && data.results){
-                    for(var i = before; i < bodyEl.children.length; i++){
-                        var el = data.results[i - before]
-                        if(el) decorate(bodyEl.children[i], el)
+                try{
+                    if(bodyEl && bodyEl.children && data && data.results){
+                        for(var i = before; i < bodyEl.children.length; i++){
+                            var el = data.results[i - before]
+                            if(el) decorate(bodyEl.children[i], el)
+                        }
                     }
                 }
+                catch(e){}
             }
 
             // отложенная плачка качества (пришла фоном из find-ответа)
