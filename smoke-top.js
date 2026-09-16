@@ -190,9 +190,10 @@ console.log('✓ TopScreen: последний вариант из Storage + п�
 assert.deepStrictEqual(state.storage.top_batch_found, undefined)
 // --- 3a. «Топ · TMDB» через сервер: /feed, качество сразу, фолбэк при отказе
 state.fields.top_server_url = 'http://10.1.1.1:8355'
+state.favorite = { history: [{ id: 999, title: 'Старый', release_date: '2020-01-01' }] }
 state.feedJson = { page: 1, total_pages: 3, results: [
-    { id: 900, title: 'Серверная карточка', release_date: '2026-01-01', media_type: 'movie', quality: '2160' },
-    { id: 901, title: 'Ещё серверная', release_date: '2026-01-01', media_type: 'movie', quality: 'sd' }
+    { id: 900, title: 'Серверная карточка', release_date: '2026-01-01', media_type: 'movie', quality: '4K', voice: 'Дубляж' },
+    { id: 901, title: 'Ещё серверная', release_date: '2026-01-01', media_type: 'movie', quality: '1080p', voice: 'Red Head Sound' }
 ] }
 {
     const tmdbCalls0 = calls.tmdb.length
@@ -203,8 +204,14 @@ state.feedJson = { page: 1, total_pages: 3, results: [
     const card = c0.topDomCards()[0]
     const view = card.querySelector('.card__view')
     const q = view.children.find(c => (c.className || '').includes('card__quality'))
-    assert.ok(q && q.children[0].textContent === '4K', 'плашка качества сразу (2160→4K)')
+    assert.ok(q && q.children[0].textContent === '4K', 'плашка качества сразу (4K)')
+    const vb = view.children.find(c => (c.className || '').includes('top-badge--voice'))
+    assert.ok(vb && vb.textContent === 'ДБ', 'плашка перевода справа: Дубляж → ДБ')
+    const card2 = c0.topDomCards()[1]
+    const vb2 = card2.querySelector('.card__view').children.find(c => (c.className || '').includes('top-badge--voice'))
+    assert.ok(vb2 && /^Red Head ?$/.test(vb2.textContent), 'студия сокращается: ' + (vb2 && vb2.textContent))
     assert.ok(calls.urls.some(u => u.includes('/feed?variant=movie_week&page=1')), '/feed с ключом варианта')
+    assert.ok(calls.urls.some(u => u.includes('exclude=')), 'просмотренные id уходят серверу (страница после фильтра)')
 }
 // фолбэк: сервер упал — прямой TMDB
 state.feedJson = null
@@ -217,6 +224,10 @@ state.feedJson = { page: 1, total_pages: 1, results: [] }
 console.log('✓ «Топ · TMDB» через сервер /feed: качество сразу, прямой TMDB не тратится, фолбэк работает')
 
 // --- 3a2. авто-добор: просмотренные вырезали страницу — клиент тянет следующую
+state.favorite = { history: [
+    { id: 10, title: 'Просмотренный А', release_date: '2026-01-01' },
+    { id: 11, title: 'Просмотренный Б', release_date: '2026-01-01' }
+] }
 state.feedJson = null
 state.storage.top_batch_found = undefined
 state.tmdbResponse = { results: [
@@ -342,7 +353,7 @@ state.fields.top_voice_1 = 'Дубляж'
 state.fields.top_voice_2 = 'LostFilm'
 state.fields.top_hide_watched = 'false'
 state.serverJson = { items: [
-    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160' },
+    { ru: 'Холоп 3', orig: '', year: 2026, season: false, quality: '2160', dub: true },
     { ru: 'Сборник софта', orig: '', year: 2021, season: false, quality: 'sd' }
 ] } // страница 1 = первые 2, total_pages = 1
 state.tmdbResponse = { results: [
@@ -367,6 +378,8 @@ assert.strictEqual(comp.built.length, 1, 'софт отсеян матчинго
     const q = view.children.find(c => (c.className || '').includes('card__quality'))
     assert.ok(q, 'плашка качества на карточке')
     assert.strictEqual(q.children[0].textContent, '4K', 'текст плашки 4K (2160 → 4K)')
+    const vb = view.children.find(c => (c.className || '').includes('top-badge--voice'))
+    assert.ok(vb && vb.textContent === 'ДБ', 'плашка перевода у трекеров: dub → ДБ')
 }
 console.log('✓ «Топ трекеров»: minq + junk + две озвучки + бейдж качества')
 

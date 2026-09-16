@@ -527,7 +527,7 @@ func warmCache() {
 		if n := len(warmVariants); n > 0 {
 			v := warmVariants[warmIdx%n]
 			warmIdx++
-			if _, _, err := buildFeed(v, 1, 20, "", "", true, true); err != nil {
+			if _, _, err := buildFeed(v, 1, 20, "", "", true, true, nil); err != nil {
 				log.Printf("warm feed %s: %v", v, err)
 			}
 		}
@@ -630,9 +630,18 @@ func main() {
 			feedSize = n
 		}
 
+		// просмотренные от клиента: id через запятую — сервер исключает,
+		// страница собирается ПОСЛЕ фильтра и всегда полная
+		exclude := map[int]bool{}
+		for _, part := range strings.Split(param(q, "exclude", ""), ",") {
+			if n, e := strconv.Atoi(strings.TrimSpace(part)); e == nil {
+				exclude[n] = true
+			}
+		}
+
 		results, total, err := buildFeed(variant, page, feedSize,
 			param(q, "minq", ""), param(q, "voice", ""),
-			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0")
+			param(q, "junk", "1") != "0", param(q, "ru", "1") != "0", exclude)
 		if err != nil {
 			writeJSON(w, 502, map[string]string{"error": err.Error()})
 			return

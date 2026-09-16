@@ -284,10 +284,15 @@
             // и вешает плашки качества (batchQuality) и «просмотрено»
             trackCards(comp, {
                 qualityOf: function(el){
-                    // серверный /feed кладёт качество прямо в карточку;
-                    // прямой путь — из памяти батча
-                    if(el.quality) return { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[el.quality] || ''
-                    return batchQuality[el.id] || ''
+                    // серверный /feed кладёт уже человекочитаемое качество;
+                    // сырые ранги (2160/1080) и память батча — тоже на входе
+                    var raw = { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }
+                    var q = el.quality
+                    if(!q) q = batchQuality[el.id] || ''
+                    return raw[q] || (/^(4K|1080p|720p|SD)$/.test(q) ? q : '')
+                },
+                voiceOf: function(el){
+                    return el.voice ? voiceShort(el.voice) : ''
                 },
                 watchedOf: function(el){
                     var w = watchedSet()
@@ -398,8 +403,11 @@
 
                 net.timeout(60000)
 
+                var exclude = watchedIdsParam()
+
                 net.silent(base + '/feed?variant=' + (object.top_variant || 'movie_week') +
-                    '&page=' + page + filtersParams(), function(json){
+                    '&page=' + page + filtersParams() +
+                    (exclude ? '&exclude=' + exclude : ''), function(json){
                     if(!json || !json.results){
                         fail(json)
                         return
@@ -568,6 +576,24 @@
                 (voices.length ? '&voice=' + encodeURIComponent(voices.join(',')) : '')
         }
 
+        // просмотренные id для серверного /feed: страница собирается ПОСЛЕ
+        // фильтра — всегда полная; ограничиваем размер URL (последние 400)
+        function watchedIdsParam(){
+            if(field('top_hide_watched') === 'false') return ''
+
+            var ids = []
+            var set = watchedSet()
+
+            for(var key in set){
+                var m = key.match(/^(?:movie|tv):(\d+)$/)
+                if(m && ids.indexOf(m[1]) === -1) ids.push(m[1])
+            }
+
+            if(ids.length > 400) ids = ids.slice(-400)
+
+            return ids.join(',')
+        }
+
         //---------- «скрыть просмотренные»: история/просмотрено Lampa, только в наших экранах
 
         // «История просмотров» + «Просмотрено» (+ «Смотрю»/«Брошено» — тоже
@@ -610,6 +636,24 @@
             return el
         }
 
+        // перевод: Дубляж/Многоголосый/студия — коротко для плашки
+        function voiceShort(v){
+            if(!v) return ''
+
+            if(v === 'Дубляж') return 'ДБ'
+            if(v === 'Многоголосый') return 'МГ'
+
+            return v.replace(/ Studio$/, '').slice(0, 9)
+        }
+
+        function voiceBadge(text){
+            var el = document.createElement('div')
+            el.className = 'top-badge top-badge--voice'
+            el.textContent = text
+            el.title = text === 'ДБ' ? 'Дубляж' : (text === 'МГ' ? 'Многоголосый' : text)
+            return el
+        }
+
         function qualityBadge(text){
             var wrap = document.createElement('div')
             wrap.className = 'card__quality' // нативный стиль Lampa
@@ -626,10 +670,12 @@
             var opts = opts || {}
             var qualityOf = opts.qualityOf || function(){ return '' }
             var watchedOf = opts.watchedOf || null
+            var voiceOf = opts.voiceOf || null
 
             try{
                 var style = document.createElement('style')
                 style.textContent = '.top-badge{position:absolute;top:8px;left:8px;z-index:3;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(22,140,70,.92);color:#fff;font-size:13px;font-weight:700}'
+                    + '.top-badge--voice{left:auto;right:8px;width:auto;min-width:22px;height:auto;line-height:1.2;padding:3px 7px;border-radius:4px;background:rgba(30,90,170,.92);font-size:11px}'
                 document.head.appendChild(style)
             }
             catch(e){}
@@ -640,6 +686,9 @@
 
                 var q = qualityOf(el)
                 if(q && !view.querySelector('.card__quality')) view.appendChild(qualityBadge(q))
+
+                var v = voiceOf ? voiceOf(el) : ''
+                if(v && !view.querySelector('.top-badge--voice')) view.appendChild(voiceBadge(v))
 
                 if(watchedOf && watchedOf(el) && !view.querySelector('.top-badge--watched')){
                     view.appendChild(watchedBadge())
@@ -859,6 +908,10 @@
                 qualityOf: function(el){
                     var q = el.top && el.top.quality
                     return { '2160': '4K', '1080': '1080p', '720': '720p', sd: 'SD' }[q] || ''
+                },
+                voiceOf: function(el){
+                    var t = el.top || {}
+                    return voiceShort(t.dub ? 'Дубляж' : (t.mvo ? 'Многоголосый' : (t.voice || '')))
                 },
                 watchedOf: function(el){
                     var w = watchedSet()

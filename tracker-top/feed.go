@@ -107,7 +107,7 @@ func fetchTMDB(v tmdbVariant, page int) ([]map[string]any, error) {
 // buildFeed: страница из `pageSize` карточек, прошедших фильтры раздач —
 // сервер добирает TMDB-страницы, пока не наберёт (фильтрация больше
 // не съедает карточки, как было на клиенте)
-func buildFeed(variant string, page, feedSize int, minq, voices string, junk, ru bool) ([]map[string]any, int, error) {
+func buildFeed(variant string, page, feedSize int, minq, voices string, junk, ru bool, exclude map[int]bool) ([]map[string]any, int, error) {
 	v, ok := tmdbVariants[variant]
 	if !ok {
 		return nil, 0, fmt.Errorf("unknown variant")
@@ -138,6 +138,12 @@ func buildFeed(variant string, page, feedSize int, minq, voices string, junk, ru
 			if isAnimePerson(el) {
 				continue
 			}
+
+			// просмотренные: клиент прислал свои id — страница считается
+			// ПОСЛЕ фильтра, потому всегда полная
+			if idf, ok := el["id"].(float64); ok && exclude != nil && exclude[int(idf)] {
+				continue
+			}
 			query, _ := el["title"].(string)
 			if query == "" {
 				query, _ = el["name"].(string)
@@ -163,6 +169,9 @@ func buildFeed(variant string, page, feedSize int, minq, voices string, junk, ru
 			}
 
 			el["quality"] = humanQuality(it.Quality)
+			if v := humanVoice(it); v != "" {
+				el["voice"] = v
+			}
 			collected = append(collected, el)
 		}
 
@@ -190,6 +199,19 @@ func isAnimePerson(el map[string]any) bool {
 		return true
 	}
 	return false
+}
+
+// humanVoice — озвучка лучшей раздачи: приоритет Дубляж > Многоголосый > студия
+func humanVoice(it Item) string {
+	switch {
+	case it.Dub:
+		return "Дубляж"
+	case it.Mvo:
+		return "Многоголосый"
+	case it.Voice != "":
+		return it.Voice
+	}
+	return ""
 }
 
 // humanQuality — сырой ранг → вид для плашки
